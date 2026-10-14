@@ -81,10 +81,6 @@ function dayKey(input: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(input) ? input : vendorDateString(new Date(input));
 }
 
-function isHandoverFamily(row: FilterableLedgerRow): boolean {
-  return row.type === 'CASH_IN' || row.type === 'CASH_IN_CORRECTION';
-}
-
 function isPending(row: FilterableLedgerRow): boolean {
   return row.status === 'PENDING';
 }
@@ -181,12 +177,9 @@ export function matchesFilters(row: FilterableLedgerRow, filters: CashLedgerTime
 
   if (filters.recordedById && row.recordedById !== filters.recordedById) return false;
   if (filters.approvedById && row.approvedById !== filters.approvedById) return false;
-  if (filters.employeeId) {
-    const own = row.employeeId === filters.employeeId;
-    // Handover-family rows carry the submitting driver as `recordedById`.
-    const driver = isHandoverFamily(row) && row.recordedById === filters.employeeId;
-    if (!own && !driver) return false;
-  }
+  // Handover-family rows carry the sheet's driver as `employeeId` (`recordedById`
+  // is whoever closed the sheet), so a plain equality covers every row kind.
+  if (filters.employeeId && row.employeeId !== filters.employeeId) return false;
   // Extra Labour is an OFFICE_EXPENSE-only attribution — a distinct id space
   // from `employeeId` (a User), so it is its own independent filter.
   if (filters.extraLabourId && row.extraLabourId !== filters.extraLabourId) return false;

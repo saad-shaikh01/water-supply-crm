@@ -58,24 +58,21 @@ export class SalarySlipPdfService {
         drawWatermark(doc, imageSource(branding.logo, LOGO_PATH), PAGE_W, PAGE_H);
         this.drawBanner(doc, branding);
 
-        doc.y += 12;
-        this.drawSectionTitle(doc, 'SALARY SLIP');
-        doc.y += 8;
-        this.drawDetailCard(doc, this.employeeRows(slip));
-
         doc.y += 14;
-        this.drawSectionTitle(doc, 'EARNINGS & DEDUCTIONS');
-        doc.y += 8;
-        this.drawDetailCard(
-          doc,
-          slip.lines.map((l, i) => ({
-            label: l.label,
-            value: signedRupees(l.amount),
-            valueColor: l.amount < 0 ? C.red : undefined,
-            emphasize: i === 0,
-            note: l.note,
-          })),
-        );
+        // One card: employee details, then earnings & deductions under their own inline headings.
+        this.drawDetailCard(doc, [
+          { title: 'Salary Slip', rows: this.employeeRows(slip) },
+          {
+            title: 'Earnings & Deductions',
+            rows: slip.lines.map((l, i) => ({
+              label: l.label,
+              value: signedRupees(l.amount),
+              valueColor: l.amount < 0 ? C.red : undefined,
+              emphasize: i === 0,
+              note: l.note,
+            })),
+          },
+        ]);
 
         doc.y += 8;
         this.drawNetBar(doc, slip.finalPayable);
@@ -83,7 +80,31 @@ export class SalarySlipPdfService {
         doc.y += 14;
         this.drawSectionTitle(doc, 'ATTENDANCE & ABSENCES');
         doc.y += 8;
-        this.drawDetailCard(doc, this.attendanceRows(slip));
+        this.drawDetailCard(doc, [{ rows: this.attendanceRows(slip) }]);
+
+        // Category-wise statement: each category gets its own heading + subtotal, in a fixed, familiar order.
+        // Absence charges are itemised day-by-day in the absence table, so they're not repeated as ledger rows.
+        const items = (slip.deductions ?? []).filter((d) => d.group !== 'Absence deductions');
+        const groups = new Map<string, typeof items>();
+        for (const d of items) groups.set(d.group, [...(groups.get(d.group) ?? []), d]);
+        const drawGroup = (group: string) => {
+          const rows = groups.get(group);
+          if (!rows?.length) return;
+          groups.delete(group);
+          this.drawTable(
+            doc,
+            group.toUpperCase(),
+            [
+              { header: 'Date', width: 70, cells: rows.map((d) => longDate(d.date)) },
+              { header: 'Details', width: CONTENT_W - 28 - 70 - 80, cells: rows.map((d) => d.description) },
+              { header: 'Amount', width: 80, align: 'right', cells: rows.map((d) => signedRupees(d.amount)) },
+            ],
+            { label: 'Total', value: signedRupees(rows.reduce((t, d) => t + d.amount, 0)) },
+          );
+        };
+
+        drawGroup('Advances');
+        drawGroup('Daily expenses');
 
         const absenceDays = slip.absence.days ?? [];
         if (absenceDays.length > 0) {
@@ -96,21 +117,7 @@ export class SalarySlipPdfService {
           ]);
         }
 
-        const deductions = slip.deductions ?? [];
-        if (deductions.length > 0) {
-          const total = deductions.reduce((t, d) => t + d.amount, 0);
-          this.drawTable(
-            doc,
-            'DEDUCTION STATEMENT',
-            [
-              { header: 'Date', width: 70, cells: deductions.map((d) => longDate(d.date)) },
-              { header: 'Type', width: 110, cells: deductions.map((d) => d.group) },
-              { header: 'Details', width: CONTENT_W - 28 - 70 - 110 - 80, cells: deductions.map((d) => d.description) },
-              { header: 'Amount', width: 80, align: 'right', cells: deductions.map((d) => signedRupees(d.amount)) },
-            ],
-            { label: 'Total', value: signedRupees(total) },
-          );
-        }
+        for (const group of [...groups.keys()]) drawGroup(group);
 
         this.ensureSpace(doc, 80);
         doc.y += 16;
@@ -157,12 +164,7 @@ export class SalarySlipPdfService {
       });
       return rows;
     }
-    rows.push({
-      label: 'Deducted for Absence',
-      value: `${a.deductedDays} day(s)  -  Rs. ${formatRupees(a.deductedAmount)}`,
-      emphasize: true,
-      valueColor: a.deductedDays > 0 ? C.red : undefined,
-    });
+    // The deducted amount is already on the "Absence deductions" earnings line and in the day table below.
     if (a.deferredDays > 0) {
       rows.push({ label: 'Charged Next Month', value: `${a.deferredDays} day(s)  -  Rs. ${formatRupees(a.deferredAmount)}` });
     }
@@ -272,20 +274,49 @@ export class SalarySlipPdfService {
   // ── Section heading: accent bar + label (same treatment as the receipt / statement) ──
   private drawSectionTitle(doc: PDFKit.PDFDocument, label: string): void {
     const y = doc.y;
-    doc.roundedRect(MARGIN, y, 3.5, 14, 2).fill(C.accent);
-    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(11.5).text(label, MARGIN + 10, y + 1, { lineBreak: false });
+    const text = label.toUpperCase();
+    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(8.5);
+    const w = doc.widthOfString(text, { characterSpacing: 1.4 });
+    doc.text(text, MARGIN + 2, y + 1, { characterSpacing: 1.4, lineBreak: false });
+    doc.moveTo(MARGIN + 2 + w + 10, y + 6).lineTo(MARGIN + CONTENT_W, y + 6).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.y = y + 14;
   }
 
-  // ── Zebra-striped detail card (rows with a note are taller) ──
-  private drawDetailCard(doc: PDFKit.PDFDocument, rows: DetailRow[]): void {
+  // ── Inline card heading: small letter-spaced caps + hairline running to the card's right edge ──
+  private drawCardHeading(doc: PDFKit.PDFDocument, label: string, y: number): void {
+    const text = label.toUpperCase();
+    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(8.5);
+    const w = doc.widthOfString(text, { characterSpacing: 1.4 });
+    doc.text(text, MARGIN + 14, y + 6, { characterSpacing: 1.4, lineBreak: false });
+    const ly = y + 11;
+    doc.moveTo(MARGIN + 14 + w + 10, ly).lineTo(MARGIN + CONTENT_W - 14, ly).strokeColor(C.border).lineWidth(0.75).stroke();
+  }
+
+  // ── Zebra-striped detail card; optional inline headings per section (rows with a note are taller) ──
+  private drawDetailCard(doc: PDFKit.PDFDocument, sections: Array<{ title?: string; rows: DetailRow[] }>): void {
     const y = doc.y;
-    const heights = rows.map((r) => ROW_H + (r.note ? NOTE_H : 0));
-    const h = heights.reduce((s, x) => s + x, 0) + 8;
+    const HEAD_H = 24;
+    const sectionH = (s: { title?: string; rows: DetailRow[] }) =>
+      (s.title ? HEAD_H : 0) + s.rows.reduce((t, r) => t + ROW_H + (r.note ? NOTE_H : 0), 0);
+    const h = sections.reduce((t, s) => t + sectionH(s), 0) + 8;
 
     drawShadowShape(doc, MARGIN, y, CONTENT_W, h, RADIUS, C.white, { shadowColor: C.navy, borderColor: C.border });
 
-    let ry = y + 4;
+    let sy = y + 4;
+    for (const section of sections) {
+      if (section.title) {
+        this.drawCardHeading(doc, section.title, sy);
+        sy += HEAD_H;
+      }
+      this.drawRows(doc, section.rows, sy);
+      sy += sectionH(section) - (section.title ? HEAD_H : 0);
+    }
+    doc.y = y + h;
+  }
+
+  private drawRows(doc: PDFKit.PDFDocument, rows: DetailRow[], startY: number): void {
+    const heights = rows.map((r) => ROW_H + (r.note ? NOTE_H : 0));
+    let ry = startY;
     rows.forEach((row, i) => {
       const rh = heights[i];
       if (i % 2 !== 0) doc.rect(MARGIN + 1, ry, CONTENT_W - 2, rh).fill(C.surface);
@@ -303,7 +334,6 @@ export class SalarySlipPdfService {
       }
       ry += rh;
     });
-    doc.y = y + h;
   }
 
   // ── Net payable bar (same box as the receipt's balance bar) ──

@@ -646,14 +646,34 @@ export class PayrollEntryService {
     const words = (v: string) => v.replace(/_/g, ' ').toLowerCase().replace(/^w/, (c) => c.toUpperCase());
     const items: SlipDeductionItem[] = [];
     for (const r of rows) {
-      if (bucketKeyForCategory(r.category) !== 'otherDeductions') continue;
+      const bucket = bucketKeyForCategory(r.category);
+      if (bucket === 'advances') {
+        // Listed so the slip shows which day each advance / installment was taken (its own table in the PDF).
+        const label = r.category === StaffLedgerCategory.ADVANCE_RECOVERY ? 'Advance installment' : 'Advance';
+        items.push({
+          date: r.effectiveDate,
+          group: 'Advances',
+          description: [label, r.description].filter(Boolean).join(' - '),
+          amount: r.amount,
+        });
+        continue;
+      }
+      if (bucket !== 'otherDeductions') continue;
       const crew = r.crewCashSource ?? r.standaloneCrewCashSource;
       let group: string;
       let description: string;
       if (r.category === StaffLedgerCategory.CREW_CASH || crew) {
-        group = 'Crew cash';
-        const parts = [crew ? words(String(crew.category)) : 'Crew cash'];
-        if (r.crewCashSource) parts.push(`daily sheet ${day(r.crewCashSource.date)}`);
+        // Staff-friendly wording: "Crew cash" means nothing to the employee, so a meal reads "Lunch expense".
+        group = 'Daily expenses';
+        const expenseLabels: Record<string, string> = {
+          MEAL: 'Lunch expense',
+          TEA: 'Tea expense',
+          WATER: 'Water expense',
+          SNACKS: 'Snacks expense',
+          OPERATIONAL_CASH: 'Operational cash',
+          EMERGENCY_CASH: 'Emergency cash',
+        };
+        const parts = [crew ? (expenseLabels[String(crew.category)] ?? 'Other expense') : 'Daily expense'];
         const note = crew?.notes ?? r.description;
         if (note) parts.push(note);
         description = parts.join(' - ');

@@ -92,7 +92,7 @@ export interface SlipAbsenceDay {
 /** One ledger row behind the "Other deductions" total (crew cash, absence charge, manual deduction ...). */
 export interface SlipDeductionItem {
   date: Date;
-  /** Group heading, e.g. "Crew cash". */
+  /** Group heading, e.g. "Daily expenses". */
   group: string;
   description: string;
   /** Signed rupees, as stored (negative = charged to the employee). */
@@ -177,7 +177,7 @@ export function buildSlipLines(entry: SlipEntryInput, otherGroups: readonly Slip
   if (otherGroups.length > 0 && groupTotal === entry.otherDeductions) {
     for (const g of otherGroups) add(g.label, g.amount);
   } else {
-    add('Other deductions', entry.otherDeductions, 'Includes absence deductions, crew cash and other deductions.');
+    add('Other deductions', entry.otherDeductions, 'Includes absence deductions, daily expenses and other deductions.');
   }
   add('Carried forward from previous month', entry.carryForwardIn);
   add('Held-back deductions from previous month', -entry.deferredIn, 'Deductions held back last month, charged now.');
@@ -252,7 +252,7 @@ export function buildSalarySlip(input: {
     periodStart: input.period.startDate,
     periodEnd: input.period.endDate,
     status: entry.status,
-    lines: buildSlipLines(entry, groupDeductions(input.deductions ?? [])),
+    lines: buildSlipLines(entry, groupDeductions((input.deductions ?? []).filter((d) => d.group !== 'Advances'))),
     finalPayable: entry.finalPayable,
     absence: summarizeSlipAbsence(attendance),
     attendance: {

@@ -115,14 +115,15 @@ describe('cash-ledger-filters (pure)', () => {
       expect(pick([a, b], { approvedById: 'm1' })).toEqual([a]);
     });
 
-    it('employeeId matches the row employee OR (handover family) the submitting driver', () => {
+    it('employeeId matches the row employee (the sheet driver on handover rows), never the recorder', () => {
       const crew = row({ bucket: 'CREW_CASH', type: 'STANDALONE_CREW_CASH_OUT', employeeId: 'emp' });
-      const handover = row({ bucket: 'SHEET_CASH_IN', type: 'CASH_IN', recordedById: 'emp' });
-      const correction = row({ bucket: 'SHEET_CASH_IN', type: 'CASH_IN_CORRECTION', recordedById: 'emp' });
-      // recordedById on a NON-handover row is the accountant, not an employee link.
+      const handover = row({ bucket: 'SHEET_CASH_IN', type: 'CASH_IN', employeeId: 'emp', recordedById: 'closer' });
+      const correction = row({ bucket: 'SHEET_CASH_IN', type: 'CASH_IN_CORRECTION', employeeId: 'emp', recordedById: 'closer' });
+      // recordedById is the person who recorded the row, not an employee link.
+      const closedByEmp = row({ bucket: 'SHEET_CASH_IN', type: 'CASH_IN', employeeId: 'driver', recordedById: 'emp' });
       const expense = row({ recordedById: 'emp' });
       const other = row({ employeeId: 'someone' });
-      expect(pick([crew, handover, correction, expense, other], { employeeId: 'emp' })).toEqual([crew, handover, correction]);
+      expect(pick([crew, handover, correction, closedByEmp, expense, other], { employeeId: 'emp' })).toEqual([crew, handover, correction]);
     });
 
     it('extraLabourId is a plain equality filter, independent of employeeId', () => {

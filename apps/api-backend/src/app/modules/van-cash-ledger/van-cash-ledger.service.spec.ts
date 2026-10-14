@@ -366,6 +366,16 @@ describe('VanCashLedgerService', () => {
       expect(result).not.toBeNull();
     });
 
+    it('records the actor who closed the sheet as the submitter (driver only as a fallback)', async () => {
+      const { svc, tx } = makeService({ sheet: buildClosedSheet({ cashExpected: 750 }) });
+
+      await svc.createHandoverForClosedSheet(tx as any, VENDOR_ID, SHEET_ID, 'closer-001');
+
+      expect(tx.vanCashHandover.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ submittedById: 'closer-001' }) }),
+      );
+    });
+
     it('a WALK_IN sheet handover is PENDING too — same review flow as ROUTE (client denied auto-approve 2026-09-11)', async () => {
       const { svc, tx } = makeService({ sheet: buildClosedSheet({ kind: DailySheetKind.WALK_IN }) });
 

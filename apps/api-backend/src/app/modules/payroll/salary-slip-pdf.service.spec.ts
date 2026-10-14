@@ -60,7 +60,7 @@ describe('SalarySlipPdfService', () => {
   it('prints the deduction statement + per-day absence table, flowing onto extra pages when long', async () => {
     const items = Array.from({ length: 80 }, (_, i) => ({
       date: new Date(Date.UTC(2026, 8, 1 + (i % 28))),
-      group: i % 2 ? 'Crew cash' : 'Absence deductions',
+      group: i % 2 ? 'Daily expenses' : 'Absence deductions',
       description: i % 2 ? 'Meal - daily sheet 2026-09-0' + (i % 9) + ' - lunch for the crew on a long route' : 'Absent on 2026-09-02',
       amount: -100,
     }));
@@ -75,7 +75,7 @@ describe('SalarySlipPdfService', () => {
       attendance,
       deductions: items,
     });
-    expect(slip.lines.find((l) => l.label === 'Crew cash')?.amount).toBe(-4000);
+    expect(slip.lines.find((l) => l.label === 'Daily expenses')?.amount).toBe(-4000);
     expect(slip.lines.find((l) => l.label === 'Absence deductions')?.amount).toBe(-4000);
     expect(slip.lines.some((l) => l.label === 'Other deductions')).toBe(false);
     const buf = await svc.generate(slip);

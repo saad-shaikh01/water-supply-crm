@@ -857,6 +857,9 @@ export class VanCashLedgerService {
     tx: Prisma.TransactionClient,
     vendorId: string,
     sheetId: string,
+    // Who closed / approved-the-close of the sheet — recorded as the handover's
+    // submitter. Falls back to the sheet's driver when no actor is available.
+    actorId?: string | null,
   ): Promise<VanCashHandover | null> {
     const sheet = await tx.dailySheet.findUnique({
       where: { id: sheetId },
@@ -895,7 +898,7 @@ export class VanCashLedgerService {
         // by an approver — both start equal.
         amount: resolved.cashExpected,
         expectedAmount: resolved.cashExpected,
-        submittedById: sheetRow.driverId,
+        submittedById: actorId ?? sheetRow.driverId,
         date: sheetRow.date,
         status: VanCashHandoverStatus.PENDING,
         approvedAt: null,
@@ -940,6 +943,7 @@ export class VanCashLedgerService {
     vendorId: string,
     sheetId: string,
     newCashAmount: number,
+    actorId?: string | null,
   ): Promise<VanCashHandover | null> {
     const chain = await tx.vanCashHandover.findMany({
       where: { vendorId, dailySheetId: sheetId },
@@ -976,7 +980,7 @@ export class VanCashLedgerService {
           dailySheetId: sheetId,
           amount: newCashAmount,
           expectedAmount: newCashAmount,
-          submittedById: sheet.driverId,
+          submittedById: actorId ?? sheet.driverId,
           date: sheet.date,
           status: VanCashHandoverStatus.PENDING,
           approvedAt: null,
@@ -1571,6 +1575,7 @@ export class VanCashLedgerService {
             id: true,
             date: true,
             salesman: { select: { name: true } },
+            driver: { select: { name: true } },
           },
         },
       },
@@ -1591,14 +1596,14 @@ export class VanCashLedgerService {
       for (const g of sums) depositBySheet.set(g.dailySheetId, round2(g._sum.depositCashCollected ?? 0));
     }
 
-    // Flattened for the Pending Approvals panel — the driver is who actually
-    // submits a handover (submittedById === dailySheet.driverId, see
-    // createHandoverForClosedSheet), so it doubles as "driverName" here.
+    // Flattened for the Pending Approvals panel — `submittedBy` is whoever closed
+    // the sheet (see createHandoverForClosedSheet), so the driver comes from the
+    // sheet itself.
     return rows.map((row) => ({
       id: row.id,
       dailySheetId: row.dailySheetId,
       vanPlateNumber: row.van.plateNumber,
-      driverName: row.submittedBy?.name ?? '—',
+      driverName: row.dailySheet.driver?.name ?? row.submittedBy?.name ?? '—',
       salesmanName: row.dailySheet.salesman?.name ?? null,
       date: row.date,
       amount: row.amount,
@@ -2190,6 +2195,7 @@ export class VanCashLedgerService {
           van: { select: { plateNumber: true } },
           submittedBy: { select: { name: true } },
           approvedBy: { select: { name: true } },
+          dailySheet: { select: { driverId: true, driver: { select: { name: true } } } },
         },
         orderBy: { date: 'asc' },
       }),
@@ -2439,6 +2445,7 @@ export class VanCashLedgerService {
           van: { select: { plateNumber: true } },
           submittedBy: { select: { name: true } },
           approvedBy: { select: { name: true } },
+          dailySheet: { select: { driverId: true, driver: { select: { name: true } } } },
         },
         orderBy: { date: 'asc' },
       }),
@@ -3053,7 +3060,12 @@ export class VanCashLedgerService {
   }
 
   private normalizeCashIn(
-    row: VanCashHandover & { van: { plateNumber: string }; submittedBy: { name: string } | null; approvedBy: { name: string } | null },
+    row: VanCashHandover & {
+      van: { plateNumber: string };
+      submittedBy: { name: string } | null;
+      approvedBy: { name: string } | null;
+      dailySheet?: { driverId: string; driver: { name: string } | null } | null;
+    },
   ): VanCashLedgerRow {
     const isCorrection = row.correctsEntryId !== null;
     const badge = `via Daily Sheet #${shortSheetId(row.dailySheetId)}`;
@@ -3071,6 +3083,8 @@ export class VanCashLedgerService {
         relatesToDate: relatesToDate ? relatesToDate.toISOString() : null,
         recordedByName: row.submittedBy?.name ?? null,
         recordedById: row.submittedById ?? null,
+        // The sheet's driver — `recordedBy` is whoever closed the sheet.
+        employeeId: row.dailySheet?.driverId ?? null,
         approvedById: row.approvedById ?? null,
         expectedAmount: row.expectedAmount ?? null,
         variance: round2(row.amount - (row.expectedAmount ?? row.amount)),
@@ -3094,6 +3108,7 @@ export class VanCashLedgerService {
       sourceBadge: badge,
       status: row.status,
       dailySheetId: row.dailySheetId,
+      employeeName: row.dailySheet?.driver?.name ?? null,
       submittedByName: row.submittedBy?.name ?? null,
       approvedByName: row.approvedBy?.name ?? null,
       version: row.version,
