@@ -213,9 +213,11 @@ export const useApproveHandover = () => {
     retry: 0,
     mutationFn: ({ id, data }: { id: string; data: ApproveHandoverPayload }) =>
       vanCashLedgerApi.approveHandover(id, data),
-    onSuccess: () => {
+    onSuccess: (res) => {
       INVALIDATE_ALL(queryClient);
-      toast.success('Handover approved');
+      // A short approval by someone who may not release shortfalls comes back still PENDING (held).
+      if (res?.data?.status === 'PENDING') toast.warning('Not posted — sent to an admin for review');
+      else toast.success('Handover approved');
     },
     onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.error(e?.response?.data?.message ?? 'Failed to approve handover'),

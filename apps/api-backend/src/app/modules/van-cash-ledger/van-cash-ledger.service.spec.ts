@@ -73,6 +73,10 @@ const baseHandover = {
   approvedAt: null as Date | null,
   approvedAmount: null as number | null,
   adjustmentReason: null as string | null,
+  heldAmount: null as number | null,
+  heldReason: null as string | null,
+  heldAt: null as Date | null,
+  heldById: null as string | null,
   correctsEntryId: null as string | null,
   version: 1,
   createdAt: new Date('2026-09-01'),
@@ -643,6 +647,72 @@ describe('VanCashLedgerService', () => {
     it('throws ConflictException on stale version (CAS mismatch)', async () => {
       const { svc } = makeService({ handover: { ...baseHandover, version: 5 } });
       await expect(svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 })).rejects.toThrow(ConflictException);
+    });
+
+    describe('short approval hold (van_cash_ledger:approve_shortfall)', () => {
+      it('without the permission, approving LESS holds the handover: nothing is posted, the proposal is stored', async () => {
+        const { svc, tx, audit, permissions } = makeService({ handover: { ...baseHandover, version: 1 } });
+        permissions.can.mockResolvedValue(false);
+
+        await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1, approvedAmount: 0, adjustmentReason: 'driver kept it' });
+
+        expect(permissions.can).toHaveBeenCalledWith(adminUser.userId, 'van_cash_ledger:approve_shortfall');
+        const data = tx.vanCashHandover.updateMany.mock.calls[0][0].data;
+        expect(data).toEqual(
+          expect.objectContaining({ heldAmount: 0, heldReason: 'driver kept it', heldById: adminUser.userId }),
+        );
+        expect(data).not.toHaveProperty('status');
+        expect(data).not.toHaveProperty('amount');
+        expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'HELD' }));
+      });
+
+      it('without the permission, approving the FULL amount still posts', async () => {
+        const { svc, tx, permissions } = makeService({ handover: { ...baseHandover, version: 1 } });
+        permissions.can.mockResolvedValue(false);
+
+        await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 });
+
+        expect(tx.vanCashHandover.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: VanCashHandoverStatus.APPROVED, amount: 500 }) }),
+        );
+      });
+
+      it('without the permission, approving MORE than handed over still posts (flagged as a positive variance)', async () => {
+        const { svc, tx, permissions } = makeService({ handover: { ...baseHandover, version: 1 } });
+        permissions.can.mockResolvedValue(false);
+
+        await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1, approvedAmount: 650, adjustmentReason: 'found extra' });
+
+        expect(tx.vanCashHandover.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: VanCashHandoverStatus.APPROVED, amount: 650 }) }),
+        );
+      });
+
+      it('without the permission, a handover already on hold cannot be approved at all', async () => {
+        const { svc, tx, permissions } = makeService({
+          handover: { ...baseHandover, version: 2, heldAmount: 100, heldAt: new Date(), heldById: 'acc-1' },
+        });
+        permissions.can.mockResolvedValue(false);
+
+        await expect(svc.approveHandover(adminUser, HANDOVER_ID, { version: 2 })).rejects.toThrow(ForbiddenException);
+        expect(tx.vanCashHandover.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('with the permission, a held handover can be released at the full amount or at a reduced one', async () => {
+        const held = { ...baseHandover, version: 2, heldAmount: 100, heldAt: new Date(), heldById: 'acc-1' };
+
+        const full = makeService({ handover: held });
+        await full.svc.approveHandover(adminUser, HANDOVER_ID, { version: 2 });
+        expect(full.tx.vanCashHandover.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: VanCashHandoverStatus.APPROVED, amount: 500 }) }),
+        );
+
+        const reduced = makeService({ handover: held });
+        await reduced.svc.approveHandover(adminUser, HANDOVER_ID, { version: 2, approvedAmount: 100, adjustmentReason: 'confirmed short' });
+        expect(reduced.tx.vanCashHandover.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: VanCashHandoverStatus.APPROVED, amount: 100 }) }),
+        );
+      });
     });
   });
 
@@ -2188,7 +2258,16 @@ describe('VanCashLedgerService', () => {
       await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 900);
 
       const data = tx.vanCashHandover.update.mock.calls[0][0].data;
-      expect(data).toEqual({ amount: 900, expectedAmount: 900, version: { increment: 1 } });
+      // Any held (short-approved) proposal is dropped — the sheet figure it was based on just moved.
+      expect(data).toEqual({
+        amount: 900,
+        expectedAmount: 900,
+        heldAmount: null,
+        heldReason: null,
+        heldAt: null,
+        heldById: null,
+        version: { increment: 1 },
+      });
       expect(periodStore.isDateClosed).not.toHaveBeenCalled();
     });
 
@@ -2254,7 +2333,8 @@ describe('VanCashLedgerService', () => {
     it('approval needs no override permission (system-of-record action) — permissions are never consulted for the redirect', async () => {
       const { svc, permissions } = makeService({ handover: { ...baseHandover, version: 1 } }, ['2026-09']);
       await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 });
-      expect(permissions.can).not.toHaveBeenCalled();
+      // The only permission consulted is the shortfall one — never override_lock for the redirect.
+      expect(permissions.can).not.toHaveBeenCalledWith(expect.anything(), 'van_cash_ledger:override_lock');
     });
 
     it('open period: NO date / relatesToDate in the CAS data; audit shows the unchanged date', async () => {

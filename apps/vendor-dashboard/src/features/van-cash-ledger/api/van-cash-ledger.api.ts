@@ -103,6 +103,11 @@ export interface CashLedgerRowV2 {
    * it counts in, `relatesToDate` is the original business date ("for 12 Aug").
    */
   relatesToDate?: string | null;
+  /** Handover rows: short-approved by an approver without approve_shortfall — held, nothing posted yet. */
+  onHold?: boolean;
+  heldAmount?: number | null;
+  heldReason?: string | null;
+  heldByName?: string | null;
 }
 
 export type ManualCashInSource =
@@ -653,6 +658,12 @@ export interface PendingHandover {
   amount: number;
   /** Customer-deposit cash the driver collected on this sheet, handed over with `amount`; counted in the ledger when approved. */
   depositCash?: number;
+  /** An approver short-approved this handover — nothing is posted until an approve_shortfall holder releases it. */
+  onHold?: boolean;
+  /** The reduced figure the approver proposed (the amount is NOT posted). */
+  heldAmount?: number | null;
+  heldReason?: string | null;
+  heldByName?: string | null;
   /** Optimistic-concurrency token required by the approve action. */
   version: number;
 }

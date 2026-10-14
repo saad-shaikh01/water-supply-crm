@@ -639,6 +639,7 @@ model User {
   vanCashOpeningBalancesAsEmployee VanCashOpeningBalance[]     @relation("VanCashOpeningBalanceRelatedEmployee")
   submittedVanCashHandovers        VanCashHandover[]           @relation("VanCashHandoverSubmittedBy")
   approvedVanCashHandovers         VanCashHandover[]           @relation("VanCashHandoverApprovedBy")
+  heldVanCashHandovers             VanCashHandover[]           @relation("VanCashHandoverHeldBy")
 
   // Office Cash Remittance (owner-requested 2026-09-10)
   officeCashRemittancesSubmitted OfficeCashRemittance[] @relation("OfficeCashRemittanceSubmittedBy")
@@ -4303,6 +4304,16 @@ model VanCashHandover {
   approvedAt       DateTime?
   approvedAmount   Float?
   adjustmentReason String?
+
+  // Short-approval hold (2026-10-15): an approver without van_cash_ledger:approve_shortfall
+  // who approves LESS than `amount` posts nothing — the row stays PENDING with the proposed
+  // figure + reason here, until an approve_shortfall holder approves it (full or reduced).
+  // The columns stay as history once approved. Null on every row that was never held.
+  heldAmount Float?
+  heldReason String?
+  heldAt     DateTime?
+  heldById   String?
+  heldBy     User?     @relation("VanCashHandoverHeldBy", fields: [heldById], references: [id])
 
   correctsEntryId String?
   correctsEntry   VanCashHandover?  @relation("VanCashHandoverCorrection", fields: [correctsEntryId], references: [id], onDelete: SetNull)

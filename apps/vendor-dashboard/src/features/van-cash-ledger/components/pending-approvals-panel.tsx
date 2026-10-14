@@ -72,6 +72,10 @@ export function PendingApprovalsPanel({ open, onOpenChange }: PendingApprovalsPa
     date: h.date,
     amount: h.amount,
     depositCash: h.depositCash,
+    onHold: h.onHold,
+    heldAmount: h.heldAmount,
+    heldReason: h.heldReason,
+    heldByName: h.heldByName,
     version: h.version,
   });
 

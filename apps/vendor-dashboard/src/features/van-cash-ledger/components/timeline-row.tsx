@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import {
   ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Paperclip, History, CalendarClock, Pencil, Ban, ChevronRight,
-  ChevronDown, Scale, Lock, Undo2,
+  ChevronDown, Scale, Lock, Undo2, ShieldAlert,
 } from 'lucide-react';
 import { Badge, Card, cn } from '@water-supply-crm/ui';
 import type { CashLedgerRow } from '../api/van-cash-ledger.api';
@@ -111,10 +111,23 @@ export function RowStateChips({ row }: { row: CashLedgerRow }) {
           For {fmtDate(row.relatesToDate)}
         </StateChip>
       )}
+      {isPending && row.onHold && (
+        <StateChip
+          icon={ShieldAlert}
+          className="border-amber-500/50 bg-amber-500/10 text-amber-500"
+          title={[
+            `${row.heldByName ?? 'An approver'} short-approved ${money(row.heldAmount ?? 0)} of ${money(row.amount)} — nothing is posted until an admin reviews it`,
+            row.heldReason ? `“${row.heldReason}”` : null,
+          ].filter(Boolean).join(' · ')}
+        >
+          On hold · short {money(row.amount - (row.heldAmount ?? 0))}
+        </StateChip>
+      )}
       {hasVariance && (
         <StateChip
           icon={Scale}
-          title={`Sheet said ${money(row.expectedAmount)}; approved ${money(row.amount)}`}
+          className={(row.variance ?? 0) > 0 ? 'border-destructive/50 text-destructive' : 'border-amber-500/50 text-amber-500'}
+          title={`Sheet said ${money(row.expectedAmount)}; approved ${money(row.amount)}${(row.variance ?? 0) > 0 ? ' — MORE than the sheet' : ''}`}
         >
           <span className="font-mono">{signedMoney(row.variance)}</span> vs sheet
         </StateChip>

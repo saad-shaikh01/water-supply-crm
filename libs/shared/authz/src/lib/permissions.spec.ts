@@ -160,7 +160,8 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // data_imports adds +1 resource, +1 page, +5 permissions; slip_send adds +1 permission.
 // 224 = 221 + company_profile (page, view, update; owner-approved 2026-10-08): +1 resource, +1 page, +3 permissions.
 // 225 = 224 + whatsapp:page (Settings -> WhatsApp; the existing `whatsapp` resource becomes navigable): +1 page, +1 permission.
-const FROZEN_TOTAL = 225;
+// 226 = 225 + van_cash_ledger:approve_shortfall (release a handover an approver short-approved; owner-requested 2026-10-15; VENDOR_ADMIN-only by default).
+const FROZEN_TOTAL = 226;
 const FROZEN_PAGES = 34;
 const FROZEN_RESOURCES = 39;
 
