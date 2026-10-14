@@ -58,7 +58,7 @@ function makeService(opts: { txOverrides?: any; canViewAll?: boolean } = {}) {
 
 describe('SettlementService', () => {
   describe('record() — status precondition', () => {
-    it.each([PayrollEntryStatus.DRAFT, PayrollEntryStatus.UNDER_REVIEW, PayrollEntryStatus.APPROVED])(
+    it.each([PayrollEntryStatus.DRAFT, PayrollEntryStatus.UNDER_REVIEW])(
       'rejects recording a settlement against a %s entry, naming the actual status',
       async (status) => {
         const { svc, tx } = makeService({ txOverrides: { payrollEntry: { ...makeTx().payrollEntry, findFirst: jest.fn().mockResolvedValue(makeLockedEntry({ status })) } } });
@@ -67,6 +67,20 @@ describe('SettlementService', () => {
         expect(tx.settlement.create).not.toHaveBeenCalled();
       },
     );
+
+    it('records a payment against an APPROVED entry and leaves it APPROVED (no lock, no auto-settle)', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          payrollEntry: { ...makeTx().payrollEntry, findFirst: jest.fn().mockResolvedValue(makeLockedEntry({ status: PayrollEntryStatus.APPROVED })) },
+          settlement: { ...makeTx().settlement, aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 999999 } }) },
+        },
+      });
+      const result = await svc.record(adminUser, ENTRY_ID, recordDto);
+      expect(tx.settlement.create).toHaveBeenCalledTimes(1);
+      expect(tx.payrollEntry.updateMany).not.toHaveBeenCalled();
+      expect(result.autoSettled).toBe(false);
+      expect(result.entry.status).toBe(PayrollEntryStatus.APPROVED);
+    });
 
     it('throws NotFoundException when the entry does not belong to this vendor (tenancy)', async () => {
       const { svc } = makeService({

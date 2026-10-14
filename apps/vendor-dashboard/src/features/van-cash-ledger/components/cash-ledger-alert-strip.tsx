@@ -1,8 +1,10 @@
 'use client';
 
-import { AlertTriangle, Clock, Hourglass } from 'lucide-react';
+import { AlertTriangle, Clock, Hourglass, ShieldAlert } from 'lucide-react';
 import { Button } from '@water-supply-crm/ui';
-import { useCashLedgerSummary } from '../hooks/use-van-cash-ledger';
+import { useCan } from '../../authz/hooks/use-can';
+import { VAN_CASH_LEDGER_PERMISSIONS } from '../constants';
+import { useCashLedgerSummary, usePendingHandovers } from '../hooks/use-van-cash-ledger';
 import { fmtDayKey, money } from '../format';
 
 interface CashLedgerAlertStripProps {
@@ -19,7 +21,13 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  */
 export function CashLedgerAlertStrip({ onReview }: CashLedgerAlertStripProps) {
   const { data } = useCashLedgerSummary();
+  // Short-approved handovers wait for the (RBAC-designated) approve_shortfall holder — only they are alerted.
+  const canApproveShortfall = useCan(VAN_CASH_LEDGER_PERMISSIONS.approveShortfall);
+  const { data: pendingHandovers } = usePendingHandovers();
   if (!data) return null;
+
+  const held = canApproveShortfall ? (pendingHandovers ?? []).filter((h) => h.onHold) : [];
+  const heldShortfall = held.reduce((sum, h) => sum + (h.amount - (h.heldAmount ?? 0)), 0);
 
   const { memo, availableBalance } = data;
   const handovers = memo?.pendingHandovers ?? { count: 0, amount: 0 };
@@ -34,10 +42,30 @@ export function CashLedgerAlertStrip({ onReview }: CashLedgerAlertStripProps) {
   const showNegative = !!firstNegativeDate || availableBalance < 0;
   const showAdvances = advances.count > 0 || advances.amount > 0;
 
-  if (pendingParts.length === 0 && !showNegative && !showAdvances) return null;
+  if (pendingParts.length === 0 && !showNegative && !showAdvances && held.length === 0) return null;
 
   return (
     <div className="space-y-2" role="region" aria-label="Cash ledger alerts">
+      {held.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2.5 sm:px-4">
+          <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+            <ShieldAlert className="h-4 w-4 text-destructive shrink-0 mt-0.5 sm:mt-0" aria-hidden />
+            <p className="text-xs sm:text-sm font-semibold text-destructive min-w-0 break-words">
+              {plural(held.length, 'handover')} short-approved and on hold — {money(heldShortfall)} missing. Nothing is in the
+              ledger until you review {held.length === 1 ? 'it' : 'them'}.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onReview}
+            className="h-11 sm:h-8 rounded-full px-4 text-xs font-bold border-destructive/40 text-destructive hover:bg-destructive/10 w-full sm:w-auto shrink-0"
+          >
+            Investigate
+          </Button>
+        </div>
+      )}
+
       {pendingParts.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 sm:px-4">
           <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">

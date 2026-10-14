@@ -132,6 +132,7 @@ function handover(id: string, date: string, amount: number, over: Record<string,
     van: { plateNumber: 'ABC-123' },
     submittedBy: { name: 'Driver One' },
     approvedBy: { name: 'Admin' },
+    dailySheet: { driverId: U.driver1, driver: { name: 'Driver One' } },
     ...over,
   };
 }
@@ -287,6 +288,7 @@ function dataset(): Data {
         dailySheetId: SHEET_B,
         submittedById: U.driver2,
         submittedBy: { name: 'Driver Two' },
+        dailySheet: { driverId: U.driver2, driver: { name: 'Driver Two' } },
       }),
     ],
     crew: [

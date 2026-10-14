@@ -94,6 +94,7 @@ export const ACTION_LABELS: Record<string, string> = {
   remit_void: 'Void an approved office cash handover',
   close_period: 'Close / reopen a cash ledger period',
   override_lock: 'Write into a closed cash ledger period',
+  approve_shortfall: 'Release / approve a short-approved cash handover',
   // `export` reuses the shared 'Export' label above (financial data export for van_cash_ledger).
   topup: 'Record fuel card top-up',
   topup_void: 'Void a fuel card top-up',

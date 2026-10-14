@@ -86,6 +86,15 @@ export interface CashLedgerRowV2 {
    * "for"; `date` is then the current-period date it counts in. Null elsewhere.
    */
   relatesToDate?: string | null;
+  /**
+   * Handover rows only — an approver short-approved this PENDING handover, so it is ON HOLD:
+   * nothing is posted until an `approve_shortfall` holder releases it. `heldAmount` is the
+   * reduced figure the approver proposed, with their `heldReason` and name.
+   */
+  onHold?: boolean;
+  heldAmount?: number | null;
+  heldReason?: string | null;
+  heldByName?: string | null;
 }
 
 export type CashLedgerRemittanceDestination = 'OWNER' | 'CEO' | 'BANK' | 'OTHER';

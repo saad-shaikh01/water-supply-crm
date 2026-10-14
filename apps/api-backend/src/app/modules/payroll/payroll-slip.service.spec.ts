@@ -57,10 +57,11 @@ function make() {
   const whatsapp = { isReadyFor: jest.fn().mockResolvedValue(true), sendTemplate: jest.fn().mockResolvedValue(true) };
   const queue = { add: jest.fn().mockResolvedValue({}) };
   const branding = { resolveForDocs: jest.fn().mockResolvedValue({ name: 'Blue Ice' }) };
-  const service = new PayrollSlipService(prisma, payrollEntries as any, pdf as any, whatsapp as any, queue as any, branding as any);
+  const receiptPdf = { generate: jest.fn().mockResolvedValue(Buffer.from('%PDF-receipt')) };
+  const service = new PayrollSlipService(prisma, payrollEntries as any, pdf as any, whatsapp as any, queue as any, branding as any, receiptPdf as any);
   // never really sleep in specs
   const delaySpy = jest.spyOn(service as any, 'sendDelay').mockResolvedValue(undefined);
-  return { service, prisma, payrollEntries, pdf, whatsapp, queue, delaySpy };
+  return { service, prisma, payrollEntries, pdf, receiptPdf, whatsapp, queue, delaySpy };
 }
 
 /** Seeds classify(): the period's entries + any previously-SENT deliveries. */
@@ -104,7 +105,7 @@ describe('PayrollSlipService.preview', () => {
         entryRow('ok'),
         entryRow('sent', { finalPayable: 26000 }),
       ],
-      [{ payrollEntryId: 'sent', sentAt: new Date('2026-10-01T10:00:00Z'), finalPayable: 25000 }],
+      [{ payrollEntryId: 'sent', documentKind: 'SLIP', sentAt: new Date('2026-10-01T10:00:00Z'), finalPayable: 25000 }],
     );
     const out = await m.service.preview(user, 'period-1', {});
     const by = Object.fromEntries(out.items.map((i) => [i.entryId, i]));
@@ -184,8 +185,76 @@ describe('PayrollSlipService.send', () => {
     expect(out.skippedNotFinal).toEqual([{ entryId: 'd', name: 'Emp d', status: 'DRAFT' }]);
   });
 
+  describe('documents (slip / receipt)', () => {
+    const rows = (m: ReturnType<typeof make>) => m.prisma.payrollSlipDelivery.createMany.mock.calls[0][0].data;
+
+    it('defaults to the full slip only', async () => {
+      const m = make();
+      seedEntries(m, [entryRow('e1')]);
+      await m.service.send(user, 'period-1', {});
+      expect(rows(m).map((r: any) => r.documentKind)).toEqual(['SLIP']);
+    });
+
+    it('both documents = TWO rows per employee, adjacent and in a stable createdAt order', async () => {
+      const m = make();
+      seedEntries(m, [entryRow('e1'), entryRow('e2')]);
+      const out = await m.service.send(user, 'period-1', { documents: ['SLIP', 'RECEIPT'] });
+      const data = rows(m);
+      expect(data.map((r: any) => `${r.payrollEntryId}:${r.documentKind}`)).toEqual(['e1:SLIP', 'e1:RECEIPT', 'e2:SLIP', 'e2:RECEIPT']);
+      const times = data.map((r: any) => r.createdAt.getTime());
+      expect([...times].sort((a, b) => a - b)).toEqual(times);
+      expect(new Set(times).size).toBe(4);
+      expect(out.queued).toBe(4);
+      expect(m.prisma.payrollSlipDispatch.create.mock.calls[0][0].data).toMatchObject({ total: 4 });
+    });
+
+    it('a per-employee choice overrides the request-wide one', async () => {
+      const m = make();
+      seedEntries(m, [entryRow('e1'), entryRow('e2')]);
+      await m.service.send(user, 'period-1', { documents: ['SLIP'], perEntry: [{ entryId: 'e2', documents: ['RECEIPT'] }] });
+      expect(rows(m).map((r: any) => `${r.payrollEntryId}:${r.documentKind}`)).toEqual(['e1:SLIP', 'e2:RECEIPT']);
+    });
+
+    it('an override for an entry outside the send is rejected', async () => {
+      const m = make();
+      seedEntries(m, [entryRow('e1')]);
+      await expect(
+        m.service.send(user, 'period-1', { entryIds: ['e1'], perEntry: [{ entryId: 'other', documents: ['RECEIPT'] }] }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('an employee without a phone gets ONE skipped row however many documents were chosen', async () => {
+      const m = make();
+      seedEntries(m, [entryRow('ok'), entryRow('np', { user: { id: 'u', name: 'No Phone', role: 'LOADER', phoneNumber: null } })]);
+      await m.service.send(user, 'period-1', { documents: ['SLIP', 'RECEIPT'] });
+      expect(rows(m).filter((r: any) => r.payrollEntryId === 'np')).toHaveLength(1);
+    });
+
+    it('already-sent is tracked PER document: a sent slip does not stop the receipt, and skipAlreadySent sends only what is missing', async () => {
+      const m = make();
+      const slipSent = [{ payrollEntryId: 'e1', documentKind: 'SLIP', sentAt: new Date('2026-10-01T10:00:00Z'), finalPayable: 25000 }];
+      seedEntries(m, [entryRow('e1')], slipSent);
+      const preview = await m.service.preview(user, 'period-1', { documents: ['SLIP', 'RECEIPT'] });
+      expect(preview.items[0]).toMatchObject({ documents: ['SLIP', 'RECEIPT'], alreadySentKinds: ['SLIP'] });
+      // receipt only: nothing was sent before -> not flagged
+      const receiptOnly = await m.service.preview(user, 'period-1', { documents: ['RECEIPT'] });
+      expect(receiptOnly.items[0]).toMatchObject({ alreadySentKinds: [], alreadySent: null });
+
+      await m.service.send(user, 'period-1', { documents: ['SLIP', 'RECEIPT'], skipAlreadySent: true });
+      expect(rows(m).map((r: any) => r.documentKind)).toEqual(['RECEIPT']);
+    });
+
+    it('409 when ANY chosen document was already sent, listing which', async () => {
+      const m = make();
+      seedEntries(m, [entryRow('e1')], [{ payrollEntryId: 'e1', documentKind: 'RECEIPT', sentAt: new Date(), finalPayable: 25000 }]);
+      const err: any = await m.service.send(user, 'period-1', { documents: ['SLIP', 'RECEIPT'] }).catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse().alreadySent[0]).toMatchObject({ entryId: 'e1', kinds: ['RECEIPT'] });
+    });
+  });
+
   describe('already-sent protection', () => {
-    const sent = [{ payrollEntryId: 'e1', sentAt: new Date('2026-10-01T10:00:00Z'), finalPayable: 25000 }];
+    const sent = [{ payrollEntryId: 'e1', documentKind: 'SLIP', sentAt: new Date('2026-10-01T10:00:00Z'), finalPayable: 25000 }];
 
     it('409 SLIP_ALREADY_SENT without confirmResend — and nothing is created or queued', async () => {
       const m = make();
@@ -257,7 +326,7 @@ describe('PayrollSlipService.runDispatch', () => {
   function seedRun(m: ReturnType<typeof make>, entries: any[], dispatchOver: any = {}) {
     m.prisma.payrollSlipDispatch.findUnique.mockResolvedValue({ id: 'dispatch-1', status: 'QUEUED', sent: 0, skipped: 0, failed: 0, startedAt: null, ...dispatchOver });
     m.prisma.payrollSlipDelivery.findMany.mockResolvedValue(
-      entries.map((e, i) => ({ id: `del-${i}`, vendorId: 'vendor-A', payrollEntryId: e.id, createdAt: new Date(i) })),
+      entries.map((e, i) => ({ id: `del-${i}`, vendorId: 'vendor-A', payrollEntryId: e.id, documentKind: 'SLIP', createdAt: new Date(i) })),
     );
     m.prisma.payrollEntry.findFirst.mockImplementation(async ({ where }: any) => {
       const e = entries.find((x) => x.id === where.id);
@@ -278,9 +347,31 @@ describe('PayrollSlipService.runDispatch', () => {
       CloudTemplateNames.SALARY_SLIP,
       ['Emp e1', '2026-09', '45,000'],
       { buffer: expect.any(Buffer), filename: 'Salary-Slip-2026-09-Emp-e1.pdf' },
+      undefined,
+      undefined, // the slip keeps the default rate-limit slot
     );
     expect(deliveryUpdates(m)[0]).toMatchObject({ where: { id: 'del-0' }, data: expect.objectContaining({ status: 'SENT', sentAt: expect.any(Date) }) });
     expect(lastDispatchUpdate(m)).toMatchObject({ status: 'COMPLETED', sent: 1, skipped: 0, failed: 0, finishedAt: expect.any(Date) });
+  });
+
+  it('a RECEIPT row is built with the receipt generator and sent through the salary_receipt template in its own rate-limit slot', async () => {
+    const m = make();
+    seedRun(m, [entryRow('e1', { finalPayable: 45000 })]);
+    m.prisma.payrollSlipDelivery.findMany.mockResolvedValue([
+      { id: 'del-0', vendorId: 'vendor-A', payrollEntryId: 'e1', documentKind: 'RECEIPT', createdAt: new Date(0) },
+    ]);
+    await m.service.runDispatch('dispatch-1');
+    expect(m.receiptPdf.generate).toHaveBeenCalledTimes(1);
+    expect(m.pdf.generate).not.toHaveBeenCalled();
+    expect(m.whatsapp.sendTemplate).toHaveBeenCalledWith(
+      'vendor-A',
+      '923001234567',
+      CloudTemplateNames.SALARY_RECEIPT,
+      ['Emp e1', '2026-09', '45,000'],
+      { buffer: expect.any(Buffer), filename: 'Salary-Receipt-2026-09-Emp-e1.pdf' },
+      undefined,
+      'salary-receipt',
+    );
   });
 
   it('builds the slip from ONLY that employee (vendor-scoped entry + own attendance)', async () => {
@@ -505,8 +596,8 @@ describe('PayrollSlipService.status / dispatchDetail', () => {
   it('status is vendor-scoped and reports last state + amount-changed per entry, and the active dispatch', async () => {
     const m = make();
     m.prisma.payrollSlipDelivery.findMany.mockResolvedValue([
-      { payrollEntryId: 'e1', status: 'FAILED', error: 'x', sentAt: null, createdAt: new Date('2026-10-03'), finalPayable: 25000 },
-      { payrollEntryId: 'e1', status: 'SENT', error: null, sentAt: new Date('2026-10-02'), createdAt: new Date('2026-10-02'), finalPayable: 24000 },
+      { payrollEntryId: 'e1', documentKind: 'SLIP', status: 'FAILED', error: 'x', sentAt: null, createdAt: new Date('2026-10-03'), finalPayable: 25000 },
+      { payrollEntryId: 'e1', documentKind: 'SLIP', status: 'SENT', error: null, sentAt: new Date('2026-10-02'), createdAt: new Date('2026-10-02'), finalPayable: 24000 },
     ]);
     m.prisma.payrollEntry.findMany.mockResolvedValue([{ id: 'e1', finalPayable: 25000 }]);
     m.prisma.payrollSlipDispatch.findMany.mockResolvedValue([{ id: 'd1', status: 'RUNNING', createdAt: new Date() }]);
@@ -521,8 +612,8 @@ describe('PayrollSlipService.status / dispatchDetail', () => {
   it('a QUEUED row abandoned by a dead worker (> 6h) shows as FAILED/Interrupted, never "Sending…" forever', async () => {
     const m = make();
     m.prisma.payrollSlipDelivery.findMany.mockResolvedValue([
-      { payrollEntryId: 'e1', status: 'QUEUED', error: null, sentAt: null, createdAt: new Date(Date.now() - 7 * 3600 * 1000), finalPayable: 1 },
-      { payrollEntryId: 'e2', status: 'QUEUED', error: null, sentAt: null, createdAt: new Date(), finalPayable: 1 },
+      { payrollEntryId: 'e1', documentKind: 'SLIP', status: 'QUEUED', error: null, sentAt: null, createdAt: new Date(Date.now() - 7 * 3600 * 1000), finalPayable: 1 },
+      { payrollEntryId: 'e2', documentKind: 'SLIP', status: 'QUEUED', error: null, sentAt: null, createdAt: new Date(), finalPayable: 1 },
     ]);
     const out = await m.service.status(user, 'period-1');
     expect(out.entries.e1.last).toMatchObject({ status: 'FAILED', error: expect.stringContaining('Interrupted') });

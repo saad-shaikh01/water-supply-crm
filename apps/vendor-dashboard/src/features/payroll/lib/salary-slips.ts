@@ -1,4 +1,4 @@
-import type { SlipEntryStatus, SlipDeliveryStatus } from '../api/payroll.api';
+import type { SlipEntryStatus, SlipDeliveryStatus, SlipDocumentKind } from '../api/payroll.api';
 
 /** Pure helpers for the salary-slip UI (no React, no app imports) — easy to unit test. */
 
@@ -60,3 +60,32 @@ export function slipChip(status: SlipEntryStatus | undefined): SlipChip | null {
 
 /** `45000` → `45,000`. */
 export const formatRupees = (n: number) => Math.round(n).toLocaleString('en-US');
+
+// ── Which documents to send (salary slip / salary receipt) ───────────────────────
+
+export const DOCUMENT_KINDS: SlipDocumentKind[] = ['SLIP', 'RECEIPT'];
+
+export const DOCUMENT_LABEL: Record<SlipDocumentKind, { name: string; hint: string }> = {
+  SLIP: { name: 'Salary slip', hint: 'Full A4 PDF — earnings, deductions, attendance and every absence / deduction row.' },
+  RECEIPT: { name: 'Salary receipt', hint: 'Short A5 PDF — the summary card, final payable and a one-line attendance summary.' },
+};
+
+/** The documents of one employee that a send would actually message (everything, or only what was not sent yet). */
+export function pendingKinds(
+  item: { documents: SlipDocumentKind[]; alreadySentKinds: SlipDocumentKind[] },
+  resendAlreadySent: boolean,
+): SlipDocumentKind[] {
+  return resendAlreadySent ? item.documents : item.documents.filter((k) => !item.alreadySentKinds.includes(k));
+}
+
+/** `current` with `kind` switched on/off. At least one document always stays on (null = the toggle was refused). */
+export function toggleKind(current: readonly SlipDocumentKind[], kind: SlipDocumentKind): SlipDocumentKind[] | null {
+  const next = current.includes(kind) ? current.filter((k) => k !== kind) : [...current, kind];
+  if (next.length === 0) return null;
+  return DOCUMENT_KINDS.filter((k) => next.includes(k)); // stable order: slip first
+}
+
+/** Same set of documents, whatever the order. */
+export function sameKinds(a: readonly SlipDocumentKind[], b: readonly SlipDocumentKind[]): boolean {
+  return a.length === b.length && a.every((k) => b.includes(k));
+}

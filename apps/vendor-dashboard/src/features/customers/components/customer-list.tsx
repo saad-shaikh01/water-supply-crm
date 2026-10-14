@@ -62,6 +62,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess,
     outstandingMonthly, setOutstandingMonthly, outstandingCash, setOutstandingCash, minPendingAmount, setMinPendingAmount,
     rateProductId, setRateProductId, rateAbove, setRateAbove, rateBelow, setRateBelow, rateAmount, setRateAmount,
+    codeRef, setCodeRef, createdDateRef, setCreatedDateRef, rangeDir, setRangeDir,
     sort, setSort, sortDir, setSortDir,
   } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
@@ -111,6 +112,40 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [rateAmountInput, setRateAmountInput] = useState<string>(
     !isNaN(rateAmount) && rateAmount > 0 ? String(rateAmount) : '',
   );
+
+  // "Customers after/before a code or date" — draft state, committed by Apply
+  const [posMode, setPosMode] = useState<'code' | 'date'>(createdDateRef ? 'date' : 'code');
+  const [posInput, setPosInput] = useState<string>(createdDateRef || codeRef);
+  const [posDir, setPosDir] = useState<'after' | 'before' | ''>(
+    rangeDir === 'after' || rangeDir === 'before' ? rangeDir : '',
+  );
+
+  const applyPosition = () => {
+    const value = posInput.trim();
+    resetPage();
+    if (!value || !posDir) {
+      setCodeRef(null);
+      setCreatedDateRef(null);
+      setRangeDir(null);
+      return;
+    }
+    setRangeDir(posDir);
+    if (posMode === 'code') {
+      setCodeRef(value);
+      setCreatedDateRef(null);
+    } else {
+      setCreatedDateRef(value);
+      setCodeRef(null);
+    }
+  };
+
+  const clearPosition = () => {
+    setCodeRef(null);
+    setCreatedDateRef(null);
+    setRangeDir(null);
+    setPosInput('');
+    setPosDir('');
+  };
 
   const { data: productsData } = useQuery({
     queryKey: ['products', 'all-active'],
@@ -175,6 +210,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           clear: () => { resetPage(); setRateAbove(false); setRateBelow(false); },
         }
       : null,
+    rangeDir && (codeRef || createdDateRef)
+      ? {
+          label: `${codeRef ? `Code ${rangeDir === 'after' ? '>' : '<'} ${codeRef}` : `Added ${rangeDir} ${createdDateRef}`}`,
+          clear: () => { resetPage(); clearPosition(); },
+        }
+      : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
 
   const clearAllFilters = () => {
@@ -198,6 +239,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     setRateBelow(false);
     setRateAmount(null);
     setRateAmountInput('');
+    clearPosition();
   };
 
   // Commit the free-text days input to the query param (empty / 0 clears it)
@@ -539,6 +581,57 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               </div>
               <p className="text-[11px] text-muted-foreground/70">
                 Select Monthly and/or Cash to filter by an unpaid balance. Leave the amount blank to match any amount owed, or set a minimum (e.g. 100) to only show customers owing that much or more.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Customer Code / Date Added</Label>
+              <Select
+                value={posMode}
+                onValueChange={(v) => { setPosMode(v as 'code' | 'date'); setPosInput(''); }}
+              >
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border shadow-2xl">
+                  <SelectItem value="code">Customer Code</SelectItem>
+                  <SelectItem value="date">Date Added</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-4 px-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={posDir === 'after'}
+                    onChange={(e) => setPosDir(e.target.checked ? 'after' : '')}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm font-semibold">After</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={posDir === 'before'}
+                    onChange={(e) => setPosDir(e.target.checked ? 'before' : '')}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm font-semibold">Before</span>
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type={posMode === 'date' ? 'date' : 'text'}
+                  placeholder="e.g. L0100"
+                  value={posInput}
+                  onChange={(e) => setPosInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyPosition(); }}
+                  className="rounded-xl bg-background/50 border-border h-10"
+                />
+                <Button size="sm" variant="outline" className="rounded-xl h-10 shrink-0" onClick={applyPosition}>
+                  Apply
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Pick a customer code or a date, tick After or Before, then Apply. After L0100 shows L0101 and up; Before shows L0099 and below (the code/date itself is excluded). Date compares the day the customer was added.
               </p>
             </div>
             <div className="space-y-2">

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { PayrollPeriodService } from './payroll-period.service';
 import { UnlockPayrollPeriodDto } from './dto/unlock-payroll-period.dto';
+import { MarkSettledDto } from './dto/mark-settled.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -55,6 +56,16 @@ export class PayrollPeriodController {
   @RequirePermissions('payroll:period_lock')
   lockPeriod(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.payrollPeriods.lockPeriod(user, id);
+  }
+
+  /**
+   * PATCH /payroll/periods/entries/:id/lock — locks ONE approved, fully-paid employee (becomes SETTLED).
+   * Gated like recording a payment: whoever pays the salary closes the entry.
+   */
+  @Patch('entries/:id/lock')
+  @RequirePermissions('payroll:settlement_record')
+  lockEntry(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: MarkSettledDto) {
+    return this.payrollPeriods.lockEntry(user, id, dto.version);
   }
 
   /** PATCH /payroll/periods/:id/unlock — VENDOR_ADMIN only, mandatory reason. */

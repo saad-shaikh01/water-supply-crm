@@ -35,6 +35,9 @@ export const useCustomers = () => {
   const [rateAbove, setRateAbove] = useQueryState('rateAbove', parseAsBoolean.withDefault(false));
   const [rateBelow, setRateBelow] = useQueryState('rateBelow', parseAsBoolean.withDefault(false));
   const [rateAmount, setRateAmount] = useQueryState('rateAmount', parseAsFloat.withDefault(NaN));
+  const [codeRef, setCodeRef] = useQueryState('codeRef', parseAsString.withDefault(''));
+  const [createdDateRef, setCreatedDateRef] = useQueryState('createdDateRef', parseAsString.withDefault(''));
+  const [rangeDir, setRangeDir] = useQueryState('rangeDir', parseAsString.withDefault(''));
   const [sort, setSort] = useQueryState('sort', parseAsString.withDefault(''));
   const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
@@ -64,6 +67,9 @@ export const useCustomers = () => {
     rateAbove: rateAbove || undefined,
     rateBelow: rateBelow || undefined,
     rateAmount: !isNaN(rateAmount) && rateAmount > 0 ? rateAmount : undefined,
+    rangeDir: rangeDir === 'after' || rangeDir === 'before' ? (rangeDir as 'after' | 'before') : undefined,
+    codeRef: codeRef || undefined,
+    createdDateRef: createdDateRef || undefined,
     sort: sort || undefined,
     sortDir: (sortDir as 'asc' | 'desc') || undefined,
   };
@@ -106,6 +112,12 @@ export const useCustomers = () => {
     setRateBelow,
     rateAmount,
     setRateAmount,
+    codeRef,
+    setCodeRef,
+    createdDateRef,
+    setCreatedDateRef,
+    rangeDir,
+    setRangeDir,
     sort,
     setSort,
     sortDir,

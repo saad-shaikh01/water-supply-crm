@@ -14,7 +14,7 @@ import { VoidLedgerEntryDialog } from './void-ledger-entry-dialog';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { ledgerCategoryLabel } from '../constants';
 import { useEntryBreakdown, useApproveEntry, useRecalculateEntry, PENDING_ABSENCE_DECISIONS_CODE, type PayrollEntryBucketTotals, type BreakdownLedgerEntry } from '../hooks/use-monthly-payroll';
-import { useCollectAdvanceInstallment, useSkipAdvanceInstallment } from '../hooks/use-advance-plans';
+import { useCollectAdvanceInstallment, useSkipAdvanceInstallment, useReverseAdvanceInstallment } from '../hooks/use-advance-plans';
 import { useAttendanceCategories } from '../hooks/use-attendance';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { AbsenceDecisionBar } from './absence-decision-bar';
@@ -141,6 +141,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
 
   const collect = useCollectAdvanceInstallment(entryId ?? '', data?.entry.userId ?? '');
   const skip = useSkipAdvanceInstallment(entryId ?? '', data?.entry.userId ?? '');
+  const reverse = useReverseAdvanceInstallment(entryId ?? '', data?.entry.userId ?? '');
 
   const periodWritable = data ? !['LOCKED', 'PAID'].includes(data.entry.period.status) : false;
 
@@ -263,7 +264,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
 
   return (
     <Dialog open={!!entryId} onOpenChange={handleClose}>
-      <DialogContent className="rounded-3xl max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="rounded-3xl max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden grid-cols-[minmax(0,1fr)] w-[calc(100vw-1.5rem)] sm:w-full p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <Receipt className="h-5 w-5 text-primary" />
@@ -281,7 +282,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
             Failed to load this entry's breakdown.
           </div>
         ) : (
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 min-w-0">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <p className="text-lg font-bold">{data.entry.user.name}</p>
@@ -303,7 +304,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
               </div>
             </div>
 
-            <Tabs value={tab} onValueChange={setTab}>
+            <Tabs value={tab} onValueChange={setTab} className="min-w-0">
               <TabsList className="grid h-10 w-full grid-cols-3">
                 <TabsTrigger value="breakdown" className="text-xs font-bold">Breakdown</TabsTrigger>
                 <TabsTrigger value="attendance" className="text-xs font-bold">Attendance</TabsTrigger>
@@ -313,19 +314,19 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
               {/* ── Breakdown ─────────────────────────────────────────────── */}
               <TabsContent value="breakdown" className="space-y-5 mt-4">
                 <div className="rounded-2xl border border-border/50 bg-muted/20 divide-y divide-border/50">
-                  <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center justify-between gap-3 px-3 sm:px-4 py-3">
                     <span className="text-sm font-semibold text-muted-foreground">Base Salary</span>
-                    <span className="font-mono font-bold">₨ {data.entry.baseSalary.toLocaleString()}</span>
+                    <span className="font-mono font-bold shrink-0 whitespace-nowrap">₨ {data.entry.baseSalary.toLocaleString()}</span>
                   </div>
                   {summaryRows.map((row) => (
-                    <div key={row.key} className="flex items-center justify-between px-4 py-3">
-                      <span className="text-sm font-semibold text-muted-foreground">
+                    <div key={row.key} className="flex items-center justify-between gap-3 px-3 sm:px-4 py-3">
+                      <span className="min-w-0 text-sm font-semibold text-muted-foreground">
                         {row.label}
                         {row.hint && <span className="ml-2 text-xs font-normal text-muted-foreground/80">{row.hint}</span>}
                       </span>
                       <span
                         className={cn(
-                          'font-mono font-bold',
+                          'font-mono font-bold shrink-0 whitespace-nowrap',
                           row.amount > 0 ? 'text-emerald-500' : row.amount < 0 ? 'text-destructive' : 'text-foreground',
                         )}
                       >
@@ -360,12 +361,12 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                   )}
                   <div
                     className={cn(
-                      'flex items-center justify-between px-4 py-3.5 rounded-b-2xl',
+                      'flex items-center justify-between gap-3 px-3 sm:px-4 py-3.5 rounded-b-2xl',
                       data.entry.finalPayable < 0 ? 'bg-destructive/10' : 'bg-primary/5',
                     )}
                   >
                     <span className="text-sm font-black uppercase tracking-widest">Final Payable</span>
-                    <span className={cn('font-mono font-black text-lg', data.entry.finalPayable < 0 ? 'text-destructive' : 'text-foreground')}>
+                    <span className={cn('font-mono font-black text-lg shrink-0 whitespace-nowrap', data.entry.finalPayable < 0 ? 'text-destructive' : 'text-foreground')}>
                       ₨ {data.entry.finalPayable.toLocaleString()}
                     </span>
                   </div>
@@ -772,6 +773,22 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-500">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             Collected ₨ {(plan.installment.actualAmount ?? 0).toLocaleString()} this period
+                            {canManageAdvancePlans && periodWritable && (
+                              <Button
+                                size="sm" variant="ghost"
+                                className="ml-auto h-7 rounded-lg text-xs font-bold gap-1.5 text-muted-foreground"
+                                title="Undo this collection and repay it from next period instead"
+                                disabled={reverse.isPending}
+                                onClick={() => {
+                                  if (!plan.installment) return;
+                                  if (window.confirm('Reverse this collection? It will no longer be deducted this period and will be due from the next one.')) {
+                                    reverse.mutate(plan.installment.id);
+                                  }
+                                }}
+                              >
+                                <Undo2 className="h-3.5 w-3.5" /> Move to next period
+                              </Button>
+                            )}
                           </div>
                         ) : plan.installment.status === 'SKIPPED' ? (
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
@@ -783,7 +800,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                             Due this period: ₨ {plan.installment.scheduledAmount.toLocaleString()}
                           </p>
                         ) : collectingId === plan.installment.id ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 overflow-x-auto [&>*]:shrink-0">
                             <Input
                               type="number" min={1} step={1}
                               value={collectAmount ?? ''}
@@ -809,8 +826,8 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                             </Button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground mr-auto">
+                          <div className="flex items-center gap-2 overflow-x-auto [&>*]:shrink-0">
+                            <span className="text-xs text-muted-foreground mr-auto whitespace-nowrap">
                               Due: ₨ {plan.installment.scheduledAmount.toLocaleString()}
                             </span>
                             <Button

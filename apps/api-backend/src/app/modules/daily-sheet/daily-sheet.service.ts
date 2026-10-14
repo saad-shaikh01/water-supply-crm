@@ -4655,7 +4655,7 @@ export class DailySheetService implements OnModuleInit {
       // handover in the same transaction as the crew-cash sync above — a
       // sheet can never end up closed with its cash handover only partially
       // created.
-      await this.vanCashLedger.createHandoverForClosedSheet(tx, vendorId, sheetId);
+      await this.vanCashLedger.createHandoverForClosedSheet(tx, vendorId, sheetId, actorId);
 
       const discrepancies = await this.discrepancyCases.createCasesForSheet(
         tx,
@@ -4932,7 +4932,7 @@ export class DailySheetService implements OnModuleInit {
       // Van Cash Ledger (owner-requested 2026-09-09) — same placement as
       // closeSheet() above: deferred to this explicit review step for a
       // Soft-Closed sheet, same as the crew-cash sync it sits beside.
-      await this.vanCashLedger.createHandoverForClosedSheet(tx, vendorId, sheetId);
+      await this.vanCashLedger.createHandoverForClosedSheet(tx, vendorId, sheetId, actorId);
 
       const discrepancies = await this.discrepancyCases.createCasesForSheet(
         tx,

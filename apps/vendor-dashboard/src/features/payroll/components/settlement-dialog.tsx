@@ -73,7 +73,8 @@ export function SettlementDialog({ entryId, onOpenChange }: SettlementDialogProp
   const isLoading = entryLoading || settlementsLoading;
   const isError = entryError || settlementsError || !breakdown || !settlementData;
 
-  const canSettleThisEntry = breakdown?.entry.status === 'LOCKED' || breakdown?.entry.status === 'SETTLED';
+  const canSettleThisEntry =
+    breakdown?.entry.status === 'APPROVED' || breakdown?.entry.status === 'LOCKED' || breakdown?.entry.status === 'SETTLED';
   // Live remaining balance (§7): server's remainingBalance minus whatever the
   // user is currently typing — deliberately allowed to go negative (overpayment)
   // or stay positive (partial payment), never clamped either direction.
@@ -161,7 +162,7 @@ export function SettlementDialog({ entryId, onOpenChange }: SettlementDialogProp
 
             {!canSettleThisEntry ? (
               <p className="text-xs text-muted-foreground">
-                Settlements can only be recorded against a LOCKED or SETTLED entry.
+                Payments can only be recorded once the entry is approved.
               </p>
             ) : canRecord ? (
               <div className="space-y-4">
@@ -171,6 +172,15 @@ export function SettlementDialog({ entryId, onOpenChange }: SettlementDialogProp
                   <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
                     Amount (₨) <span className="text-destructive">*</span>
                   </Label>
+                  {settlementData.remainingBalance > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-primary underline"
+                      onClick={() => setAmount(settlementData.remainingBalance)}
+                    >
+                      Pay full remaining (₨ {settlementData.remainingBalance.toLocaleString()})
+                    </button>
+                  )}
                   <Input
                     type="number"
                     min={1}

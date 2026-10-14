@@ -506,6 +506,26 @@ Thank you for your hard work at *Blue Ice*.
 
 ---
 
+### 23. `salary_receipt`  — Employee salary receipt (chhoti A5 PDF, internal staff recipient)
+- **Category:** UTILITY · **Language:** English · **Header:** Document (PDF)
+- **Wired:** `PayrollSlipProcessor` (Monthly Payroll → "Send slips" → Receipt) — salary slip ke saath ya akele bheji ja sakti hai; alag message hoti hai (WhatsApp ek template mein sirf ek PDF allow karta hai). **Meta par approve karwana baqi hai.**
+- **Body (3 params):**
+```
+Assalamu Alaikum, *{{1}}*,
+
+Your salary receipt for *{{2}}* is attached.
+
+Final payable: Rs. *{{3}}*
+
+For any query, please contact the office.
+
+Thank you for your hard work at *Blue Ice*.
+```
+- **Variables:** `{{1}}` = employee name · `{{2}}` = payroll period label (e.g. `2026-09`) · `{{3}}` = final payable (e.g. `45,000`)
+- **Sample:** `{{1}}` = `Ali Raza`, `{{2}}` = `2026-09`, `{{3}}` = `45,000`
+
+---
+
 ## Summary — kaunsi templates zaroori vs optional
 
 | # | Template | Zaroori? |
@@ -532,6 +552,7 @@ Thank you for your hard work at *Blue Ice*.
 | 20 | `fleet_document_expiry` | ✅ Code wired — submit for Meta approval |
 | 21 | `fleet_maintenance_due` | ✅ Code wired — submit for Meta approval |
 | 22 | `salary_slip` (PDF) | ✅ Code wired — submit for Meta approval |
+| 23 | `salary_receipt` (PDF) | ✅ Code wired — submit for Meta approval |
 
 > **Go-live se pehle #1–#13 approve hone chahiye.** Jab tak approve na ho, un notifications ke messages nahi jaayenge.
 > `delivery_unsuccessful` (#17) aur `delivery_unsuccessful_photo` (#19) dono submit kar dena — backend code

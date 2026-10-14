@@ -24,6 +24,9 @@ export interface CustomerQuery {
   rateAbove?: boolean;
   rateBelow?: boolean;
   rateAmount?: number;
+  codeRef?: string;
+  createdDateRef?: string;
+  rangeDir?: 'after' | 'before';
   sort?: string;
   sortDir?: 'asc' | 'desc';
 }

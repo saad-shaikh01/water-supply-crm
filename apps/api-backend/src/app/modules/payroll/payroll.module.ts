@@ -30,6 +30,7 @@ import { StandaloneCrewCashController } from './standalone-crew-cash.controller'
 import { SheetAdvanceService } from './sheet-advance.service';
 import { SheetAdvanceController } from './sheet-advance.controller';
 import { StaffAdvancePlanService } from './staff-advance-plan.service';
+import { StaffAdvanceInstallmentReversalService } from './staff-advance-installment-reversal.service';
 import { StaffAdvancePlanController } from './staff-advance-plan.controller';
 import { PayrollVendorConfigService } from './payroll-vendor-config.service';
 import { PayrollVendorConfigController } from './payroll-vendor-config.controller';
@@ -38,6 +39,7 @@ import { PayrollSlipService } from './payroll-slip.service';
 import { PayrollSlipController } from './payroll-slip.controller';
 import { PayrollSlipProcessor } from './payroll-slip.processor';
 import { SalarySlipPdfService } from './salary-slip-pdf.service';
+import { SalaryReceiptPdfService } from './salary-receipt-pdf.service';
 
 /**
  * Staff Payroll & Financial Management — Phase 1b.
@@ -119,11 +121,13 @@ import { SalarySlipPdfService } from './salary-slip-pdf.service';
     SheetAdvanceService,
     AttendanceCategoryService,
     StaffAdvancePlanService,
+    StaffAdvanceInstallmentReversalService,
     PayrollVendorConfigService,
     PayrollExportService,
     PayrollSlipService,
     PayrollSlipProcessor,
     SalarySlipPdfService,
+    SalaryReceiptPdfService,
   ],
   exports: [
     SalaryStructureService,

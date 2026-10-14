@@ -173,6 +173,8 @@ export const VAN_CASH_LEDGER_PERMISSIONS = {
   remit: 'van_cash_ledger:remit' as Permission,
   remitApprove: 'van_cash_ledger:remit_approve' as Permission,
   remitVoid: 'van_cash_ledger:remit_void' as Permission,
+  /** Release a handover an approver short-approved (held for review). */
+  approveShortfall: 'van_cash_ledger:approve_shortfall' as Permission,
   /** P5 — CSV exports (timeline / daily table) and the daily cash report PDF. */
   export: 'van_cash_ledger:export' as Permission,
 };

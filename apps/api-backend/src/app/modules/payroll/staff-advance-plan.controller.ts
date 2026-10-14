@@ -1,5 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { StaffAdvancePlanService } from './staff-advance-plan.service';
+import { StaffAdvanceInstallmentReversalService } from './staff-advance-installment-reversal.service';
+import { ReverseAdvanceInstallmentDto } from './dto/reverse-advance-installment.dto';
 import { CreateAdvancePlanDto } from './dto/create-advance-plan.dto';
 import { UpdateAdvancePlanDto } from './dto/update-advance-plan.dto';
 import { CollectAdvanceInstallmentDto } from './dto/collect-advance-installment.dto';
@@ -21,7 +23,10 @@ import type { AuthUser } from '@water-supply-crm/types';
  */
 @Controller('payroll')
 export class StaffAdvancePlanController {
-  constructor(private readonly advancePlans: StaffAdvancePlanService) {}
+  constructor(
+    private readonly advancePlans: StaffAdvancePlanService,
+    private readonly installmentReversal: StaffAdvanceInstallmentReversalService,
+  ) {}
 
   /** POST /payroll/advance-plans */
   @Post('advance-plans')
@@ -77,5 +82,12 @@ export class StaffAdvancePlanController {
   @RequirePermissions('payroll:advance_plan_manage')
   skip(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.advancePlans.skip(user, id);
+  }
+
+  /** POST /payroll/advance-installments/:id/reverse — undo a collect so the amount is repaid from next period. */
+  @Post('advance-installments/:id/reverse')
+  @RequirePermissions('payroll:advance_plan_manage')
+  reverse(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReverseAdvanceInstallmentDto) {
+    return this.installmentReversal.reverse(user, id, dto);
   }
 }

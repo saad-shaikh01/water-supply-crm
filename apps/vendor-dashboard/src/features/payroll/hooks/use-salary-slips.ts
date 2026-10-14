@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { payrollApi, type SendSlipsData, type SendSlipsResult, type SlipStatusResponse } from '../api/payroll.api';
+import { payrollApi, type SlipDocumentChoice, type SendSlipsData, type SendSlipsResult, type SlipStatusResponse } from '../api/payroll.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 /** How often the table's slip chips + progress banner refresh while a send is running. */
@@ -44,11 +44,18 @@ export function useSlipStatus(periodId: string | undefined, enabled: boolean) {
 }
 
 /** Read-only preview (who gets a slip, who is skipped and why, who was already sent). Fetched when the dialog opens. */
-export function useSlipPreview(periodId: string | undefined, entryIds: string[] | undefined, enabled: boolean) {
-  const key = entryIds ? [...entryIds].sort().join(',') : 'all';
+export function useSlipPreview(
+  periodId: string | undefined,
+  entryIds: string[] | undefined,
+  enabled: boolean,
+  choice: SlipDocumentChoice = {},
+) {
+  // The choice is part of the key: changing it re-asks the server which documents were already sent.
+  const key = `${entryIds ? [...entryIds].sort().join(',') : 'all'}|${JSON.stringify(choice)}`;
   return useQuery({
     queryKey: queryKeys.payroll.slipPreview(periodId ?? '', key),
-    queryFn: () => payrollApi.previewSlips(periodId as string, entryIds).then((r) => r.data),
+    queryFn: () => payrollApi.previewSlips(periodId as string, entryIds, choice).then((r) => r.data),
+    placeholderData: (prev) => prev, // keep the list on screen while a changed choice re-fetches
     enabled: enabled && !!periodId,
     staleTime: 0,
     gcTime: 0,

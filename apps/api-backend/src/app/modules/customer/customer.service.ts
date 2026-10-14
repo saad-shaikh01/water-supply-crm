@@ -134,6 +134,12 @@ export class CustomerService {
     }
   }
 
+  /** Trailing digits of a customer code as a number (L0100 → 100); null if none. */
+  private trailingNumber(code: string): number | null {
+    const m = /(\d+)\s*$/.exec(code);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
   private async generateCustomerCode(vendorId: string, tx: Prisma.TransactionClient): Promise<string> {
     // Use raw SQL to get the max numeric value from L#### codes — avoids string sort issues
     const result = await tx.$queryRaw<{ maxnum: number | null }[]>`
@@ -197,7 +203,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, groupId, subGroupId, ungrouped, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, rateProductId, rateAbove, rateBelow, rateAmount, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, groupId, subGroupId, ungrouped, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, rateProductId, rateAbove, rateBelow, rateAmount, codeRef, createdDateRef, rangeDir, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -345,6 +351,35 @@ export class CustomerService {
           .filter((c) => {
             const rate = this.resolveCustomerPrice(c, rateProductId, rateProduct.basePrice);
             return (rateAbove && rate > rateAmount) || (rateBelow && rate < rateAmount);
+          })
+          .map((c) => c.id);
+        this.intersectWhereIds(where, matchIds);
+      }
+    }
+
+    // Position filter — customers after/before a given customer code (by the
+    // code's trailing number) or a given created-on date. Both bounds strict.
+    if (rangeDir && createdDateRef) {
+      const day = new Date(`${createdDateRef}T00:00:00`);
+      if (!isNaN(day.getTime())) {
+        if (rangeDir === 'after') {
+          const next = new Date(day);
+          next.setDate(next.getDate() + 1);
+          where.createdAt = { gte: next };
+        } else {
+          where.createdAt = { lt: day };
+        }
+      }
+    } else if (rangeDir && codeRef) {
+      const refNum = this.trailingNumber(codeRef);
+      if (refNum === null) {
+        this.intersectWhereIds(where, []);
+      } else {
+        const candidates = await this.prisma.customer.findMany({ where, select: { id: true, customerCode: true } });
+        const matchIds = candidates
+          .filter((c) => {
+            const n = this.trailingNumber(c.customerCode);
+            return n !== null && (rangeDir === 'after' ? n > refNum : n < refNum);
           })
           .map((c) => c.id);
         this.intersectWhereIds(where, matchIds);

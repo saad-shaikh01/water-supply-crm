@@ -32,7 +32,7 @@ export const useEntrySettlements = (entryId: string | undefined) => {
 /**
  * Records one payment (full, partial, or over-payment — the backend never blocks
  * on the remaining balance, see `RecordSettlementDto`/`SettlementService.record`)
- * against a LOCKED or SETTLED entry. Auto-transitions the entry to SETTLED
+ * against an APPROVED, LOCKED or SETTLED entry (an APPROVED one stays APPROVED until it is locked). Auto-transitions the entry to SETTLED
  * server-side once the cumulative sum reaches `finalPayable`.
  */
 export const useRecordSettlement = (entryId: string | undefined, periodId: string | undefined) => {
@@ -44,6 +44,22 @@ export const useRecordSettlement = (entryId: string | undefined, periodId: strin
       toast.success('Settlement recorded');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record settlement'),
+  });
+};
+
+/**
+ * Locks ONE approved employee once their payments cover the final payable; the entry becomes SETTLED
+ * ("Paid"). Partial payments never lock.
+ */
+export const useLockEntry = (periodId: string | undefined) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ entryId, version }: { entryId: string; version: number }) => payrollApi.lockEntry(entryId, version),
+    onSuccess: (_res, { entryId }) => {
+      invalidateEntry(queryClient, entryId, periodId);
+      toast.success('Entry locked — salary marked as paid');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to lock this entry'),
   });
 };
 

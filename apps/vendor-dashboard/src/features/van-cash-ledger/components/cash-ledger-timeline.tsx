@@ -128,9 +128,14 @@ export function CashLedgerTimeline() {
         sourceRecordId: row.sourceRecordId,
         dailySheetId: row.dailySheetId,
         vanPlateNumber: row.vanPlateNumber,
-        driverName: row.submittedByName,
+        // `submittedByName` is whoever closed the sheet; the driver is the row's employee.
+        driverName: row.employeeName ?? row.submittedByName,
         date: row.date,
         amount: row.amount,
+        onHold: row.onHold,
+        heldAmount: row.heldAmount,
+        heldReason: row.heldReason,
+        heldByName: row.heldByName,
         // Timeline CASH_IN / CASH_IN_CORRECTION rows carry their handover's real
         // version — the `?? 1` only satisfies the type for rows that never get here.
         version: row.version ?? 1,

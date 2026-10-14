@@ -8,6 +8,12 @@ import { normalizePhone, isSendablePhone } from '../whatsapp/phone.util';
 /** A slip is only sent once the employee's final payable is settled on: APPROVED, LOCKED or SETTLED. */
 export const SLIP_ELIGIBLE_STATUSES = ['APPROVED', 'LOCKED', 'SETTLED'] as const;
 
+/** The documents an employee can be sent: the full A4 salary slip, or the compact A5 salary receipt. */
+export const SLIP_DOCUMENT_KINDS = ['SLIP', 'RECEIPT'] as const;
+export type SlipDocumentKind = (typeof SLIP_DOCUMENT_KINDS)[number];
+/** What is sent when the request does not say (the behaviour before receipts existed). */
+export const DEFAULT_SLIP_DOCUMENTS: readonly SlipDocumentKind[] = ['SLIP'];
+
 export type SlipVerdict = 'ELIGIBLE' | 'NOT_FINAL' | 'NO_PHONE';
 
 /** Human reason shown next to a disabled "Send slip" button. */
@@ -86,7 +92,7 @@ export interface SlipAbsenceDay {
 /** One ledger row behind the "Other deductions" total (crew cash, absence charge, manual deduction ...). */
 export interface SlipDeductionItem {
   date: Date;
-  /** Group heading, e.g. "Crew cash". */
+  /** Group heading, e.g. "Daily expenses". */
   group: string;
   description: string;
   /** Signed rupees, as stored (negative = charged to the employee). */
@@ -171,7 +177,7 @@ export function buildSlipLines(entry: SlipEntryInput, otherGroups: readonly Slip
   if (otherGroups.length > 0 && groupTotal === entry.otherDeductions) {
     for (const g of otherGroups) add(g.label, g.amount);
   } else {
-    add('Other deductions', entry.otherDeductions, 'Includes absence deductions, crew cash and other deductions.');
+    add('Other deductions', entry.otherDeductions, 'Includes absence deductions, daily expenses and other deductions.');
   }
   add('Carried forward from previous month', entry.carryForwardIn);
   add('Held-back deductions from previous month', -entry.deferredIn, 'Deductions held back last month, charged now.');
@@ -246,7 +252,7 @@ export function buildSalarySlip(input: {
     periodStart: input.period.startDate,
     periodEnd: input.period.endDate,
     status: entry.status,
-    lines: buildSlipLines(entry, groupDeductions(input.deductions ?? [])),
+    lines: buildSlipLines(entry, groupDeductions((input.deductions ?? []).filter((d) => d.group !== 'Advances'))),
     finalPayable: entry.finalPayable,
     absence: summarizeSlipAbsence(attendance),
     attendance: {
@@ -279,4 +285,9 @@ export function slipFilename(employeeName: string, periodLabel: string): string 
   const part = (employeeName ?? '').trim().replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'Employee';
   const label = (periodLabel ?? '').replace(/[^A-Za-z0-9-]+/g, '-') || 'period';
   return `Salary-Slip-${label}-${part}.pdf`;
+}
+
+/** File name of the compact salary receipt (`Salary-Receipt-2026-09-Ali-Raza.pdf`). */
+export function receiptFilename(employeeName: string, periodLabel: string): string {
+  return slipFilename(employeeName, periodLabel).replace(/^Salary-Slip-/, 'Salary-Receipt-');
 }

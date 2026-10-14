@@ -94,6 +94,23 @@ export const useSkipAdvanceInstallment = (entryId: string, userId: string) => {
   });
 };
 
+/** Undo a collected installment — its amount is repaid from the next period instead. */
+export const useReverseAdvanceInstallment = (entryId: string, userId: string) => {
+  const queryClient = useQueryClient();
+  const invalidateEmployeeLedger = useInvalidateEmployeeLedger();
+  return useMutation({
+    mutationFn: (id: string) => payrollApi.reverseAdvanceInstallment(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.entryBreakdown(entryId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.advancePlansByEmployee(userId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.advanceVendorSummary() });
+      invalidateEmployeeLedger(userId);
+      toast.success('Collection reversed — the amount rolls into next period');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to reverse collection'),
+  });
+};
+
 /**
  * Write-off / forgive (owner-requested 2026-09-25) — the company forgives
  * whatever remains uncollected (e.g. the employee resigned). No ledger entry

@@ -395,6 +395,12 @@ export const PERMISSION_CATALOG = {
   //                   counted on the period (Vendor Admin only by default —
   //                   NOT in any preset).
   //
+  // Short-approved handovers (2026-10-15): an approver WITHOUT `approve_shortfall`
+  // who approves less than the handed-over amount posts nothing — the handover is
+  // put ON HOLD. Only a holder of `approve_shortfall` can release it (approve the
+  // full amount or a reduced one) and may also reduce an amount directly. Vendor
+  // Admin only by default — NOT in any preset, no backfill.
+  //
   // Cash Ledger CSV / PDF export (Cash Ledger redesign P5, 2026-09-18):
   //   `export`        download the ledger (timeline / daily summary) as a CSV or
   //                   PDF report — financial data export. Vendor Admin via `*`;
@@ -404,7 +410,7 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     actions: [
       'page', 'view', 'manage', 'approve', 'remit', 'remit_approve', 'remit_void',
-      'close_period', 'override_lock', 'export',
+      'close_period', 'override_lock', 'export', 'approve_shortfall',
     ],
   },
   // Fuel Card Wallet (owner-requested 2026-09-15): fuel card top-ups (office

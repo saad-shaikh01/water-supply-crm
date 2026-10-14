@@ -50,7 +50,7 @@ Blue Ice`);
   it('core customer flows are marked required for go-live; internal ones are not customer-facing', () => {
     const required = TEMPLATE_CATALOG.filter((t) => t.required).map((t) => t.name);
     expect(required).toEqual(expect.arrayContaining(['delivery_receipt', 'monthly_statement', 'payment_received', 'balance_reminder', 'order_approved', 'ticket_replied', 'payment_recorded']));
-    expect(TEMPLATE_CATALOG.filter((t) => t.internal).map((t) => t.name).sort()).toEqual(['fleet_document_expiry', 'fleet_maintenance_due', 'salary_slip']);
+    expect(TEMPLATE_CATALOG.filter((t) => t.internal).map((t) => t.name).sort()).toEqual(['fleet_document_expiry', 'fleet_maintenance_due', 'salary_receipt', 'salary_slip']);
     expect(TEMPLATE_CATALOG.filter((t) => t.internal).some((t) => t.required)).toBe(false);
   });
 

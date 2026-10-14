@@ -171,6 +171,10 @@ function rowV2(
     relatesToDate: null,
     extraLabourId: null,
     extraLabourName: null,
+    onHold: false,
+    heldAmount: null,
+    heldReason: null,
+    heldByName: null,
     ...overrides,
   };
 }
@@ -857,6 +861,9 @@ export class VanCashLedgerService {
     tx: Prisma.TransactionClient,
     vendorId: string,
     sheetId: string,
+    // Who closed / approved-the-close of the sheet — recorded as the handover's
+    // submitter. Falls back to the sheet's driver when no actor is available.
+    actorId?: string | null,
   ): Promise<VanCashHandover | null> {
     const sheet = await tx.dailySheet.findUnique({
       where: { id: sheetId },
@@ -895,7 +902,7 @@ export class VanCashLedgerService {
         // by an approver — both start equal.
         amount: resolved.cashExpected,
         expectedAmount: resolved.cashExpected,
-        submittedById: sheetRow.driverId,
+        submittedById: actorId ?? sheetRow.driverId,
         date: sheetRow.date,
         status: VanCashHandoverStatus.PENDING,
         approvedAt: null,
@@ -940,6 +947,7 @@ export class VanCashLedgerService {
     vendorId: string,
     sheetId: string,
     newCashAmount: number,
+    actorId?: string | null,
   ): Promise<VanCashHandover | null> {
     const chain = await tx.vanCashHandover.findMany({
       where: { vendorId, dailySheetId: sheetId },
@@ -976,7 +984,7 @@ export class VanCashLedgerService {
           dailySheetId: sheetId,
           amount: newCashAmount,
           expectedAmount: newCashAmount,
-          submittedById: sheet.driverId,
+          submittedById: actorId ?? sheet.driverId,
           date: sheet.date,
           status: VanCashHandoverStatus.PENDING,
           approvedAt: null,
@@ -1010,7 +1018,17 @@ export class VanCashLedgerService {
     if (original.status === VanCashHandoverStatus.PENDING && chain.length === 1) {
       const updated = await tx.vanCashHandover.update({
         where: { id: original.id },
-        data: { amount: newCashAmount, expectedAmount: newCashAmount, version: { increment: 1 } },
+        // The sheet figure moved under a held proposal — drop the hold so the
+        // approver reviews the new number rather than a stale shortfall.
+        data: {
+          amount: newCashAmount,
+          expectedAmount: newCashAmount,
+          heldAmount: null,
+          heldReason: null,
+          heldAt: null,
+          heldById: null,
+          version: { increment: 1 },
+        },
       });
 
       await this.audit.log({
@@ -1081,7 +1099,12 @@ export class VanCashLedgerService {
   // ── Approval ─────────────────────────────────────────────────────────────
 
   async approveHandover(user: AuthUser, id: string, dto: ApproveHandoverDto) {
-    const { updated, previousStatus, previousAmount, previousDate, previousRelatesToDate } =
+    // Approving LESS than was handed over posts nothing unless the caller may
+    // release shortfalls — everyone else's reduction puts the handover ON HOLD
+    // for an approve_shortfall holder to investigate (see `heldAmount`).
+    const canApproveShortfall = await this.permissions.can(user.userId, 'van_cash_ledger:approve_shortfall');
+
+    const { updated, held, previousStatus, previousAmount, previousDate, previousRelatesToDate } =
       await this.prisma.$transaction(async (tx) => {
       const handover = await tx.vanCashHandover.findFirst({ where: { id, vendorId: user.vendorId } });
       if (!handover) throw new NotFoundException('Van cash handover not found.');
@@ -1118,6 +1141,39 @@ export class VanCashLedgerService {
         );
       }
 
+      if (!canApproveShortfall) {
+        if (handover.heldAt) {
+          throw new ForbiddenException(
+            'This handover is on hold after a short approval — only someone with the van_cash_ledger:approve_shortfall permission can release it.',
+          );
+        }
+
+        if (approvedAmount < handover.amount) {
+          const hold = await tx.vanCashHandover.updateMany({
+            where: { id, vendorId: user.vendorId, version: dto.version },
+            data: {
+              heldAmount: approvedAmount,
+              heldReason: dto.adjustmentReason ?? null,
+              heldAt: new Date(),
+              heldById: user.userId,
+              version: { increment: 1 },
+            },
+          });
+          if (hold.count === 0) {
+            throw versionMismatch(handover.version, dto.version);
+          }
+
+          return {
+            updated: await tx.vanCashHandover.findUniqueOrThrow({ where: { id } }),
+            held: true,
+            previousStatus: handover.status,
+            previousAmount: handover.amount,
+            previousDate: handover.date,
+            previousRelatesToDate: handover.relatesToDate ?? null,
+          };
+        }
+      }
+
       const claim = await tx.vanCashHandover.updateMany({
         where: { id, vendorId: user.vendorId, version: dto.version },
         data: {
@@ -1141,12 +1197,29 @@ export class VanCashLedgerService {
 
       return {
         updated: await tx.vanCashHandover.findUniqueOrThrow({ where: { id } }),
+        held: false,
         previousStatus: handover.status,
         previousAmount: handover.amount,
         previousDate: handover.date,
         previousRelatesToDate: handover.relatesToDate ?? null,
       };
     });
+
+    if (held) {
+      await this.audit.log({
+        vendorId: user.vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'HELD',
+        entity: 'VanCashHandover',
+        entityId: id,
+        changes: {
+          before: { status: previousStatus, amount: previousAmount },
+          after: { status: updated.status, heldAmount: updated.heldAmount, heldReason: updated.heldReason },
+        },
+      });
+      return updated;
+    }
 
     await this.audit.log({
       vendorId: user.vendorId,
@@ -1566,11 +1639,13 @@ export class VanCashLedgerService {
       include: {
         van: { select: { id: true, plateNumber: true } },
         submittedBy: { select: { id: true, name: true } },
+        heldBy: { select: { name: true } },
         dailySheet: {
           select: {
             id: true,
             date: true,
             salesman: { select: { name: true } },
+            driver: { select: { name: true } },
           },
         },
       },
@@ -1591,18 +1666,22 @@ export class VanCashLedgerService {
       for (const g of sums) depositBySheet.set(g.dailySheetId, round2(g._sum.depositCashCollected ?? 0));
     }
 
-    // Flattened for the Pending Approvals panel — the driver is who actually
-    // submits a handover (submittedById === dailySheet.driverId, see
-    // createHandoverForClosedSheet), so it doubles as "driverName" here.
+    // Flattened for the Pending Approvals panel — `submittedBy` is whoever closed
+    // the sheet (see createHandoverForClosedSheet), so the driver comes from the
+    // sheet itself.
     return rows.map((row) => ({
       id: row.id,
       dailySheetId: row.dailySheetId,
       vanPlateNumber: row.van.plateNumber,
-      driverName: row.submittedBy?.name ?? '—',
+      driverName: row.dailySheet.driver?.name ?? row.submittedBy?.name ?? '—',
       salesmanName: row.dailySheet.salesman?.name ?? null,
       date: row.date,
       amount: row.amount,
       depositCash: depositBySheet.get(row.dailySheetId) ?? 0,
+      onHold: row.heldAt != null,
+      heldAmount: row.heldAmount ?? null,
+      heldReason: row.heldReason ?? null,
+      heldByName: row.heldBy?.name ?? null,
       version: row.version,
     }));
   }
@@ -2190,6 +2269,8 @@ export class VanCashLedgerService {
           van: { select: { plateNumber: true } },
           submittedBy: { select: { name: true } },
           approvedBy: { select: { name: true } },
+          heldBy: { select: { name: true } },
+          dailySheet: { select: { driverId: true, driver: { select: { name: true } } } },
         },
         orderBy: { date: 'asc' },
       }),
@@ -2439,6 +2520,8 @@ export class VanCashLedgerService {
           van: { select: { plateNumber: true } },
           submittedBy: { select: { name: true } },
           approvedBy: { select: { name: true } },
+          heldBy: { select: { name: true } },
+          dailySheet: { select: { driverId: true, driver: { select: { name: true } } } },
         },
         orderBy: { date: 'asc' },
       }),
@@ -3053,7 +3136,13 @@ export class VanCashLedgerService {
   }
 
   private normalizeCashIn(
-    row: VanCashHandover & { van: { plateNumber: string }; submittedBy: { name: string } | null; approvedBy: { name: string } | null },
+    row: VanCashHandover & {
+      van: { plateNumber: string };
+      submittedBy: { name: string } | null;
+      approvedBy: { name: string } | null;
+      heldBy?: { name: string } | null;
+      dailySheet?: { driverId: string; driver: { name: string } | null } | null;
+    },
   ): VanCashLedgerRow {
     const isCorrection = row.correctsEntryId !== null;
     const badge = `via Daily Sheet #${shortSheetId(row.dailySheetId)}`;
@@ -3071,6 +3160,12 @@ export class VanCashLedgerService {
         relatesToDate: relatesToDate ? relatesToDate.toISOString() : null,
         recordedByName: row.submittedBy?.name ?? null,
         recordedById: row.submittedById ?? null,
+        // The sheet's driver — `recordedBy` is whoever closed the sheet.
+        employeeId: row.dailySheet?.driverId ?? null,
+        onHold: row.status === VanCashHandoverStatus.PENDING && row.heldAt != null,
+        heldAmount: row.heldAmount ?? null,
+        heldReason: row.heldReason ?? null,
+        heldByName: row.heldBy?.name ?? null,
         approvedById: row.approvedById ?? null,
         expectedAmount: row.expectedAmount ?? null,
         variance: round2(row.amount - (row.expectedAmount ?? row.amount)),
@@ -3094,6 +3189,7 @@ export class VanCashLedgerService {
       sourceBadge: badge,
       status: row.status,
       dailySheetId: row.dailySheetId,
+      employeeName: row.dailySheet?.driver?.name ?? null,
       submittedByName: row.submittedBy?.name ?? null,
       approvedByName: row.approvedBy?.name ?? null,
       version: row.version,
