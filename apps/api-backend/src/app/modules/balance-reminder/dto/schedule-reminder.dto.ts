@@ -130,6 +130,11 @@ export class PreviewDto {
   @IsBoolean()
   includeStatement?: boolean;
 
+  /** Mirror of the send's `force`: when true the 23h cooldown is bypassed, so preview must not flag it. */
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+
   /**
    * Restrict preview to a specific payment type.
    * Omit to include both MONTHLY and CASH customers.

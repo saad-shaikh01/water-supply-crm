@@ -157,6 +157,13 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
       expect(res.skipped[0].reason).toBe('skipped-cooldown');
     });
 
+    it('force=true → cooldown is not reported (the send would bypass it)', async () => {
+      (service as any).redis = makeRedis(['c1']);
+      const res = await preview([base], { force: true });
+      expect(res.wouldSend[0].reason).toBe('would-send');
+      expect(res.skipped).toHaveLength(0);
+    });
+
     it('response envelope shape is unchanged', async () => {
       const res = await preview([base]);
       expect(res).toEqual(

@@ -206,14 +206,15 @@ export default function BalanceRemindersPage() {
   const resolvedVanId = vanFilter === 'all' ? undefined : vanFilter;
   const resolvedDayOfWeek = dayFilter === 'all' ? undefined : Number(dayFilter);
 
-  // Statement-only always attaches the PDF and ignores the balance threshold / cooldown-bypass.
+  // Statement-only always attaches the PDF and ignores the balance threshold.
   // Overdue-warning is text-only, uses the vendor's warningMinBalance, no threshold input.
   const isStatementOnly = sendType === 'statement_only';
   const isWarning = sendType === 'warning';
   const effectiveIncludeStatement = isStatementOnly ? true : isWarning ? false : includeStatement;
   // Overdue-warning has no cooldown-bypass toggle in its UI — the 23h send cooldown is
   // bypassed for it instead — a warning can be re-sent any number of times.
-  const effectiveForce = isStatementOnly ? false : isWarning ? true : forceOverride;
+  // Reminder and statement-only both honour the "Bypass 23h Cooldown" toggle.
+  const effectiveForce = isWarning ? true : forceOverride;
 
   const buildSendPayload = (dryRun = false) => {
     const base = { sendKind: sendType, mode: sendMode, month, includeStatement: effectiveIncludeStatement, dryRun, force: effectiveForce, paymentType: resolvedPaymentType };
@@ -228,7 +229,7 @@ export default function BalanceRemindersPage() {
   };
 
   const buildPreviewPayload = () => {
-    const base = { sendKind: sendType, mode: sendMode, month, includeStatement: effectiveIncludeStatement, paymentType: resolvedPaymentType };
+    const base = { sendKind: sendType, mode: sendMode, month, includeStatement: effectiveIncludeStatement, force: effectiveForce, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
     return { ...base, minBalance: Number(minBalance), vanId: resolvedVanId, dayOfWeek: resolvedDayOfWeek };
   };
@@ -655,8 +656,8 @@ export default function BalanceRemindersPage() {
                 </p>
               </div>
 
-              {/* Force override cooldown toggle (not shown for statement-only / warning) */}
-              {!isStatementOnly && !isWarning && (
+              {/* Force override cooldown toggle (not shown for warning — it never has a cooldown) */}
+              {!isWarning && (
                 <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
                   <div className="flex items-center gap-2">
                     <Zap className="h-4 w-4 text-amber-400" />

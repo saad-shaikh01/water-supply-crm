@@ -48,6 +48,7 @@ export interface PreviewPayload {
   minBalance?: number;
   month?: string;
   includeStatement?: boolean;
+  force?: boolean;
   paymentType?: PaymentTypeFilter;
   vanId?: string;
   dayOfWeek?: number;

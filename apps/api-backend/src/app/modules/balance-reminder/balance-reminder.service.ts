@@ -264,7 +264,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       vanId: dto.vanId,
       dayOfWeek: dto.dayOfWeek,
       customerIds: dto.customerIds,
-      resolveCooldown: true,
+      // A forced send ignores the cooldown, so preview must not report it either.
+      resolveCooldown: !(dto.force ?? false),
     });
 
     type PreviewEntry = { customerId: string; name: string; customerCode: string; balance: number; phone: string; paymentType: string; reason: string };
