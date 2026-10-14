@@ -402,6 +402,9 @@ export const payrollApi = {
   unlockPeriod: (periodId: string, reason: string) =>
     apiClient.patch(`/payroll/periods/${periodId}/unlock`, { reason }),
 
+  /** Locks ONE approved, fully-paid employee (becomes SETTLED). */
+  lockEntry: (entryId: string, version: number) => apiClient.patch(`/payroll/periods/entries/${entryId}/lock`, { version }),
+
   // Settlements
   recordSettlement: (entryId: string, data: RecordSettlementData) =>
     apiClient.post(`/payroll/entries/${entryId}/settlements`, data),

@@ -322,6 +322,60 @@ describe('PayrollPeriodService', () => {
     });
   });
 
+  describe('lockEntry() — per-employee lock after payment', () => {
+    const entryRow = (over: any = {}) => ({ ...approvedEntry('entry-1', 'emp-1'), version: 3, period: basePeriod, ...over });
+    const setup = (entry: any, paid: number) =>
+      makeService({
+        payrollEntry: {
+          findFirst: jest.fn().mockResolvedValue(entry),
+          findMany: jest.fn().mockResolvedValue([entry]),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findUniqueOrThrow: jest.fn().mockResolvedValue({ ...entry, status: PayrollEntryStatus.SETTLED }),
+          update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
+        },
+        settlement: { aggregate: jest.fn().mockResolvedValue({ _sum: { amount: paid } }) },
+      });
+
+    it('locks a fully-paid APPROVED entry straight to SETTLED and snapshots it', async () => {
+      const { svc, tx } = setup(entryRow(), 30000);
+      const result = await svc.lockEntry(adminUser, 'entry-1', 3);
+      expect(result.status).toBe(PayrollEntryStatus.SETTLED);
+      expect(tx.payrollSnapshot.create).toHaveBeenCalledTimes(1);
+      expect(tx.payrollEntry.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: PayrollEntryStatus.SETTLED }) }),
+      );
+    });
+
+    it('refuses to lock while the payments do not cover the final payable (partial never locks)', async () => {
+      const { svc } = setup(entryRow(), 10000);
+      await expect(svc.lockEntry(adminUser, 'entry-1', 3)).rejects.toThrow(/unpaid/i);
+    });
+
+    it('locks a zero-payable entry with no payments', async () => {
+      const { svc } = setup(entryRow({ finalPayable: 0 }), 0);
+      await expect(svc.lockEntry(adminUser, 'entry-1', 3)).resolves.toBeDefined();
+    });
+
+    it('rejects a stale version and a non-APPROVED entry', async () => {
+      await expect(setup(entryRow(), 30000).svc.lockEntry(adminUser, 'entry-1', 1)).rejects.toThrow(ConflictException);
+      await expect(
+        setup(entryRow({ status: PayrollEntryStatus.DRAFT }), 30000).svc.lockEntry(adminUser, 'entry-1', 3),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lockPeriod skips an entry that was already locked on its own', async () => {
+      const done = { ...approvedEntry('entry-2', 'emp-2'), status: PayrollEntryStatus.SETTLED };
+      const { svc, tx } = makeService({
+        payrollEntry: {
+          findMany: jest.fn().mockResolvedValue([approvedEntry('entry-1', 'emp-1'), done]),
+          update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
+        },
+      });
+      await svc.lockPeriod(adminUser, PERIOD_ID);
+      expect(tx.payrollSnapshot.create).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('unlockPeriod()', () => {
     it('requires a non-empty reason', async () => {
       const { svc, prisma } = makeService({

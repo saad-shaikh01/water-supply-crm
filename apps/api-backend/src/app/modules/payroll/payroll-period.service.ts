@@ -187,7 +187,9 @@ export class PayrollPeriodService {
         throw new BadRequestException('Cannot lock a period with no payroll entries — generate the draft first.');
       }
 
-      const unresolved = entries.filter((entry) => entry.status !== PayrollEntryStatus.APPROVED);
+      // An entry already locked on its own (paid in full and locked from the Monthly page) counts as resolved.
+      const RESOLVED: PayrollEntryStatus[] = [PayrollEntryStatus.APPROVED, PayrollEntryStatus.LOCKED, PayrollEntryStatus.SETTLED];
+      const unresolved = entries.filter((entry) => !RESOLVED.includes(entry.status));
       if (unresolved.length > 0) {
         throw new BadRequestException(
           `Cannot lock period — the following entries are not yet APPROVED: ${unresolved
@@ -199,58 +201,8 @@ export class PayrollPeriodService {
       await this.assertNoEarlierActivePeriod(tx, user.vendorId, period);
 
       for (const entry of entries) {
-        const approvedFinalPayable = entry.finalPayable;
-        const { buckets, ledgerEntryIds, carryForwardIn, deferredIn, deferredOut, finalPayable } = await this.payrollEntries.computeEntryBreakdown(
-          tx,
-          user.vendorId,
-          entry.userId,
-          period,
-          entry.baseSalary,
-        );
-
-        const breakdownJson: Record<string, unknown> = {
-          baseSalary: entry.baseSalary,
-          ...buckets,
-          carryForwardIn,
-          deferredIn,
-          deferredOut,
-          finalPayable,
-        };
-        if (finalPayable !== approvedFinalPayable) {
-          breakdownJson.approvedFinalPayable = approvedFinalPayable;
-        }
-
-        await tx.payrollSnapshot.create({
-          data: {
-            payrollEntryId: entry.id,
-            breakdownJson: breakdownJson as Prisma.InputJsonValue,
-            ledgerEntryIds,
-            createdById: user.userId,
-          },
-        });
-
-        if (ledgerEntryIds.length > 0) {
-          await tx.staffLedgerEntry.updateMany({
-            where: { id: { in: ledgerEntryIds }, vendorId: user.vendorId },
-            data: { payrollEntryId: entry.id },
-          });
-        }
-
-        await tx.payrollEntry.update({
-          where: { id: entry.id, vendorId: user.vendorId },
-          data: { ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, status: PayrollEntryStatus.LOCKED },
-        });
-
-        await tx.payrollEntryAuditLog.create({
-          data: {
-            payrollEntryId: entry.id,
-            actorId: user.userId,
-            actorRole: user.role,
-            action: PayrollAuditAction.LOCKED,
-            beforeJson: { finalPayable: approvedFinalPayable },
-            afterJson: { finalPayable },
-          },
-        });
+        if (entry.status !== PayrollEntryStatus.APPROVED) continue; // already locked individually
+        await this.lockEntryTx(tx, user, period, entry, PayrollEntryStatus.LOCKED);
       }
 
       // Advance Installments — finalize any installment an admin never
@@ -265,6 +217,113 @@ export class PayrollPeriodService {
       });
 
       return { period: updatedPeriod, lockedEntryCount: entries.length };
+    });
+  }
+
+  /**
+   * Freezes ONE entry: recomputes its breakdown from the live ledger, stores the snapshot, claims its
+   * ledger rows and moves it to `status`. Shared by the whole-period lock and the per-employee lock.
+   */
+  private async lockEntryTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    period: { id: string; startDate: Date; endDate: Date } & Record<string, any>,
+    entry: { id: string; userId: string; baseSalary: number; finalPayable: number },
+    status: PayrollEntryStatus,
+  ) {
+    const approvedFinalPayable = entry.finalPayable;
+    const { buckets, ledgerEntryIds, carryForwardIn, deferredIn, deferredOut, finalPayable } = await this.payrollEntries.computeEntryBreakdown(
+      tx,
+      user.vendorId,
+      entry.userId,
+      period as any,
+      entry.baseSalary,
+    );
+
+    const breakdownJson: Record<string, unknown> = {
+      baseSalary: entry.baseSalary,
+      ...buckets,
+      carryForwardIn,
+      deferredIn,
+      deferredOut,
+      finalPayable,
+    };
+    if (finalPayable !== approvedFinalPayable) {
+      breakdownJson.approvedFinalPayable = approvedFinalPayable;
+    }
+
+    await tx.payrollSnapshot.create({
+      data: {
+        payrollEntryId: entry.id,
+        breakdownJson: breakdownJson as Prisma.InputJsonValue,
+        ledgerEntryIds,
+        createdById: user.userId,
+      },
+    });
+
+    if (ledgerEntryIds.length > 0) {
+      await tx.staffLedgerEntry.updateMany({
+        where: { id: { in: ledgerEntryIds }, vendorId: user.vendorId },
+        data: { payrollEntryId: entry.id },
+      });
+    }
+
+    await tx.payrollEntry.update({
+      where: { id: entry.id, vendorId: user.vendorId },
+      data: { ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, status },
+    });
+
+    await tx.payrollEntryAuditLog.create({
+      data: {
+        payrollEntryId: entry.id,
+        actorId: user.userId,
+        actorRole: user.role,
+        action: PayrollAuditAction.LOCKED,
+        beforeJson: { finalPayable: approvedFinalPayable },
+        afterJson: { finalPayable, status },
+      },
+    });
+    return finalPayable;
+  }
+
+  /**
+   * Locks ONE approved employee on its own, once they've been paid in full from the Monthly page
+   * (partial payments never lock). The entry's payments must cover the recomputed final payable; it
+   * then becomes SETTLED ("Paid") straight away. The period itself is untouched — it can still be
+   * locked later and counts this entry as already resolved.
+   */
+  async lockEntry(user: AuthUser, entryId: string, version: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.payrollEntry.findFirst({
+        where: { id: entryId, vendorId: user.vendorId },
+        include: { period: true },
+      });
+      if (!entry) throw new NotFoundException('Payroll entry not found.');
+      if (entry.version !== version) {
+        throw new ConflictException('This entry changed since you loaded it. Reload and try again.');
+      }
+      if (entry.status !== PayrollEntryStatus.APPROVED) {
+        throw new BadRequestException(`Only APPROVED entries can be locked (current status: ${entry.status}).`);
+      }
+      if (entry.period.status === PayrollPeriodStatus.LOCKED || entry.period.status === PayrollPeriodStatus.PAID) {
+        throw new BadRequestException(`Period is already ${entry.period.status}.`);
+      }
+
+      const paid = (await tx.settlement.aggregate({ where: { payrollEntryId: entry.id }, _sum: { amount: true } }))._sum.amount ?? 0;
+      const claim = await tx.payrollEntry.updateMany({
+        where: { id: entry.id, vendorId: user.vendorId, version: entry.version },
+        data: { version: { increment: 1 } },
+      });
+      if (claim.count === 0) throw new ConflictException('This entry changed while locking. Reload and try again.');
+
+      const finalPayable = await this.lockEntryTx(tx, user, entry.period, entry, PayrollEntryStatus.SETTLED);
+      if (finalPayable > 0 && paid < finalPayable) {
+        // Numbers moved since approval and the payments no longer cover it — roll the whole lock back.
+        throw new BadRequestException(
+          `Cannot lock yet — Rs. ${(finalPayable - paid).toLocaleString('en-US')} is still unpaid (paid Rs. ${paid.toLocaleString('en-US')} of Rs. ${finalPayable.toLocaleString('en-US')}).`,
+        );
+      }
+      return tx.payrollEntry.findUniqueOrThrow({ where: { id: entry.id } });
     });
   }
 

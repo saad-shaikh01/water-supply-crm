@@ -23,6 +23,7 @@ import { useHistoricalPeriod } from '../hooks/use-payroll-history';
 import { EntryBreakdownDialog } from './entry-breakdown-dialog';
 import { UnlockPeriodDialog } from './unlock-period-dialog';
 import { SettlementDialog } from './settlement-dialog';
+import { useLockEntry } from '../hooks/use-settlement';
 import { SalaryStructureDialog } from './salary-structure-dialog';
 import { SendSlipsDialog, SlipDispatchResultDialog } from './send-slips-dialog';
 import { usePayrollExport, useSlipPdfDownload } from '../hooks/use-payroll-export';
@@ -99,10 +100,16 @@ function reviewSignals(r: PayrollEntry): ReviewSignal[] {
  * `finalPayable`. A SETTLED entry is trusted as settled outright — this never
  * recomputes `SettlementService.record`'s own "reached finalPayable" rule.
  */
-function settlementState(r: PayrollEntry): 'NOT_PAID' | 'PARTIALLY_PAID' | null {
-  if (r.status === 'SETTLED') return null; // StatusBadge already says "Settled"
-  if (r.status !== 'LOCKED') return null; // not applicable pre-lock
+function settlementState(r: PayrollEntry): 'NOT_PAID' | 'PARTIALLY_PAID' | 'READY_TO_LOCK' | 'PAID' | null {
+  if (r.status === 'SETTLED') return 'PAID';
+  if (r.status !== 'APPROVED' && r.status !== 'LOCKED') return null; // not applicable before approval
+  if (r.status === 'APPROVED' && isFullyPaid(r)) return 'READY_TO_LOCK';
   return (r.settledAmount ?? 0) > 0 ? 'PARTIALLY_PAID' : 'NOT_PAID';
+}
+
+/** Payments cover the final payable (or there is nothing to pay) — an APPROVED entry can now be locked. */
+function isFullyPaid(r: PayrollEntry): boolean {
+  return r.finalPayable <= 0 || (r.settledAmount ?? 0) >= r.finalPayable;
 }
 
 function amountCell(value: number) {
@@ -164,6 +171,8 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const { mutate: generateDraft, isPending: isGenerating } = useGenerateDraft(period?.id);
   const { mutate: approveEntry, isPending: isApproving } = useApproveEntry(period?.id);
   const { mutate: lockPeriod, isPending: isLocking } = useLockPeriod();
+  const { mutate: lockEntry, isPending: isLockingEntry } = useLockEntry(period?.id);
+  const [lockEntryTarget, setLockEntryTarget] = useState<PayrollEntry | null>(null);
   const { mutate: exportCsv, isPending: isExporting } = usePayrollExport();
   const { mutate: downloadSlip, isPending: isDownloadingSlip, variables: downloadingSlipVars } = useSlipPdfDownload();
   const { data: slipStatus } = useSlipStatus(period?.id, canViewAll);
@@ -513,8 +522,21 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                       </span>
                     )}
                     {settlement === 'PARTIALLY_PAID' && (
-                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-bold text-amber-600">
-                        Partially Paid
+                      <span
+                        title={`Paid ₨ ${(r.settledAmount ?? 0).toLocaleString()} of ₨ ${r.finalPayable.toLocaleString()}`}
+                        className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-bold text-amber-600"
+                      >
+                        Partially Paid · ₨ {Math.max(r.finalPayable - (r.settledAmount ?? 0), 0).toLocaleString()} left
+                      </span>
+                    )}
+                    {settlement === 'READY_TO_LOCK' && (
+                      <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-600">
+                        Fully Paid · Lock pending
+                      </span>
+                    )}
+                    {settlement === 'PAID' && (
+                      <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-600">
+                        Paid
                       </span>
                     )}
                   </div>
@@ -543,12 +565,17 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
               header: 'Actions',
               cell: (r) => {
                 const showApprove = canApprove && r.status === 'DRAFT';
-                const showSettle = canSettle && (r.status === 'LOCKED' || r.status === 'SETTLED');
+                // APPROVED: Pay until the payments cover the final payable, then Lock (which marks it Paid).
+                // LOCKED (period locked first): the classic Settle. SETTLED: done — no pay button.
+                const fullyPaid = isFullyPaid(r);
+                const showPay = canSettle && ((r.status === 'APPROVED' && !fullyPaid) || r.status === 'LOCKED');
+                const showLockEntry = canSettle && r.status === 'APPROVED' && fullyPaid && (period.status === 'OPEN' || period.status === 'REVIEW');
+                const showSettle = showPay;
                 const showSlip = canSendSlips;
                 const showPdf = canViewAll;
                 const slipBlockedReason = slipDisabledReason(r.status);
                 const needsReview = reviewSignals(r).some((s) => s.actionable);
-                if (!showApprove && !showSettle && !showSlip && !showPdf) {
+                if (!showApprove && !showSettle && !showLockEntry && !showSlip && !showPdf) {
                   return <span className="text-xs text-muted-foreground">—</span>;
                 }
                 return (
@@ -593,7 +620,22 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                         }}
                       >
                         <Landmark className="h-3 w-3" />
-                        Settle
+                        {r.status === 'APPROVED' ? 'Pay' : 'Settle'}
+                      </Button>
+                    )}
+                    {showLockEntry && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold gap-1 border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/5"
+                        title="Salary is fully paid — lock this entry"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLockEntryTarget(r);
+                        }}
+                      >
+                        <Lock className="h-3 w-3" />
+                        Lock
                       </Button>
                     )}
                     {showPdf && (
@@ -659,6 +701,23 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
         isLoading={isLocking}
         confirmLabel="Lock Period"
         variant="destructive"
+      />
+
+      <ConfirmDialog
+        open={!!lockEntryTarget}
+        onOpenChange={(o) => !o && setLockEntryTarget(null)}
+        title="Lock Salary Entry"
+        description={
+          lockEntryTarget
+            ? `${lockEntryTarget.user.name}'s salary is fully paid (₨ ${(lockEntryTarget.settledAmount ?? 0).toLocaleString()} of ₨ ${lockEntryTarget.finalPayable.toLocaleString()}). Locking freezes this entry's numbers and ledger entries and marks it as Paid. Continue?`
+            : ''
+        }
+        onConfirm={() =>
+          lockEntryTarget &&
+          lockEntry({ entryId: lockEntryTarget.id, version: lockEntryTarget.version }, { onSuccess: () => setLockEntryTarget(null) })
+        }
+        isLoading={isLockingEntry}
+        confirmLabel="Lock Entry"
       />
 
       <UnlockPeriodDialog open={unlockDialogOpen} onOpenChange={setUnlockDialogOpen} periodId={period.id} />

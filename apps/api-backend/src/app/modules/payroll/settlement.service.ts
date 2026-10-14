@@ -44,9 +44,15 @@ export class SettlementService {
       const entry = await tx.payrollEntry.findFirst({ where: { id: payrollEntryId, vendorId: user.vendorId } });
       if (!entry) throw new NotFoundException('Payroll entry not found.');
 
-      if (entry.status !== PayrollEntryStatus.LOCKED && entry.status !== PayrollEntryStatus.SETTLED) {
+      // APPROVED entries can be paid (in full or in parts) before anything is locked — the entry only locks
+      // later, from its own Lock action, once the payments cover the final payable.
+      if (
+        entry.status !== PayrollEntryStatus.APPROVED &&
+        entry.status !== PayrollEntryStatus.LOCKED &&
+        entry.status !== PayrollEntryStatus.SETTLED
+      ) {
         throw new BadRequestException(
-          `Settlements can only be recorded against a LOCKED or SETTLED entry (current status: ${entry.status}).`,
+          `Settlements can only be recorded against an APPROVED, LOCKED or SETTLED entry (current status: ${entry.status}).`,
         );
       }
 
