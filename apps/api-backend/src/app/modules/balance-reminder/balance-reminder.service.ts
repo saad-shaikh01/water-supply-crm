@@ -18,10 +18,6 @@ const cooldownKey = (vendorId: string, customerId: string) => `balance-reminder-
 
 // ─── Overdue-warning (Phase 2) ────────────────────────────────────────────────
 const DEFAULT_WARNING_DELAY_DAYS = 3;
-const WARNING_MONTH_TTL = 35 * 24 * 60 * 60; // one billing cycle + slack
-/** Per-customer "already warned this billing month" marker (survives a cooldown-key expiry). */
-const warningMonthKey = (vendorId: string, customerId: string, month: string) =>
-  `balance-warning-sent:${vendorId}:${customerId}:${month}`;
 /** A PaymentRequest in one of these states means "payment already in flight — don't nag". */
 const PENDING_PAYMENT_STATES: PaymentRequestStatus[] = [PaymentRequestStatus.PENDING, PaymentRequestStatus.PROCESSING];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -52,8 +48,7 @@ type SendVerdict =
   // WARNING-only reasons
   | 'skipped-too-soon'
   | 'skipped-paid'
-  | 'skipped-payment-pending'
-  | 'skipped-already-warned';
+  | 'skipped-payment-pending';
 
 /** A fetched + enriched customer, ready for classify() / runSendJob(). */
 interface AudienceCandidate {
@@ -70,7 +65,6 @@ interface AudienceCandidate {
   // WARNING flow only:
   lastStatementSentAt?: Date | null; // earliest 'sent' statement for this customer this month
   hasPendingPaymentRequest?: boolean;
-  alreadyWarned?: boolean; // a 'sent' WARNING log exists for this customer this month
 }
 
 /** Effective overdue-warning knobs (a missing DB row yields these defaults). */
@@ -552,18 +546,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const warnLogs = await this.prisma.reminderSendLog.findMany({
-      where: { vendorId, month, kind: ReminderSendKind.WARNING, dryRun: false },
-      select: { details: true },
-    });
-    const warnedInLog = new Set<string>();
-    for (const log of warnLogs) {
-      const details = Array.isArray(log.details) ? (log.details as Array<{ customerId?: string; status?: string }>) : [];
-      for (const d of details) {
-        if (d?.status === 'sent' && d.customerId) warnedInLog.add(d.customerId);
-      }
-    }
-
     const rows = await this.prisma.customer.findMany({
       where: {
         vendorId,
@@ -580,14 +562,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         paymentRequests: { where: { status: { in: PENDING_PAYMENT_STATES } }, select: { id: true }, take: 1 },
       },
     });
-
-    let warnedInRedis = new Set<string>();
-    if (rows.length > 0) {
-      const pipeline = this.redis.pipeline();
-      for (const c of rows) pipeline.exists(warningMonthKey(vendorId, c.id, month));
-      const res = await pipeline.exec();
-      warnedInRedis = new Set<string>(rows.filter((_, i) => (res?.[i]?.[1] as number) === 1).map((c) => c.id));
-    }
 
     let onCooldownSet = new Set<string>();
     if (opts.resolveCooldown && rows.length > 0) {
@@ -619,7 +593,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       createdAt: c.createdAt,
       lastStatementSentAt: sentStatementAt.get(c.id) ?? null,
       hasPendingPaymentRequest: (c.paymentRequests?.length ?? 0) > 0,
-      alreadyWarned: warnedInLog.has(c.id) || warnedInRedis.has(c.id),
       onCooldown: opts.resolveCooldown ? onCooldownSet.has(c.id) : undefined,
     }));
   }
@@ -764,7 +737,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
   private async sendWarnings(vendorId: string, dto: SendTargetedDto) {
     const config = await this.getConfig(vendorId);
     const dryRun = dto.dryRun ?? false;
-    const force = dto.force ?? false;
+    // Warnings may be re-sent any number of times — never gated by the 23h cooldown.
+    const force = true;
     const month = dto.month ?? this.currentMonth();
     const endDate = this.monthEndDate(month);
     const cutoff = this.warningCutoff(config.warningDelayDays);
@@ -846,7 +820,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     c: Pick<
       AudienceCandidate,
       'id' | 'phoneNumber' | 'monthEndBalance' | 'financialBalance' | 'isActive' | 'createdAt'
-      | 'lastStatementSentAt' | 'hasPendingPaymentRequest' | 'alreadyWarned'
+      | 'lastStatementSentAt' | 'hasPendingPaymentRequest'
     >,
     ctx: {
       phase: 'preview' | 'send';
@@ -898,7 +872,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     c: Pick<
       AudienceCandidate,
       'id' | 'phoneNumber' | 'monthEndBalance' | 'createdAt'
-      | 'lastStatementSentAt' | 'hasPendingPaymentRequest' | 'alreadyWarned' | 'onCooldown'
+      | 'lastStatementSentAt' | 'hasPendingPaymentRequest' | 'onCooldown'
     >,
     ctx: { phase: 'preview' | 'send'; minBalance: number; endDate: Date; excludeIds: Set<string>; warningCutoff?: Date },
   ): SendVerdict {
@@ -913,7 +887,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     // see resolveWarningAudience. Not the raw live financialBalance.
     if (c.monthEndBalance < ctx.minBalance) return 'skipped-paid';
     if (c.hasPendingPaymentRequest) return 'skipped-payment-pending';
-    if (c.alreadyWarned) return 'skipped-already-warned';
     // No cooldown rung here (unlike classify()'s REMINDER/STATEMENT_ONLY ladder) — a
     // warning send always passes force=true, so the 23h cooldown never actually blocks
     // it; showing "skipped-cooldown" in preview would just be inaccurate.
@@ -998,9 +971,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const outcome = await opts.dispatch(customer);
       if (outcome === 'sent') {
         await this.redis.set(cooldownKey(opts.vendorId, customer.id), '1', 'EX', REMINDER_COOLDOWN_TTL);
-        if (opts.kind === ReminderSendKind.WARNING) {
-          await this.redis.set(warningMonthKey(opts.vendorId, customer.id, opts.month), '1', 'EX', WARNING_MONTH_TTL);
-        }
         sent++;
       } else {
         skipped++;

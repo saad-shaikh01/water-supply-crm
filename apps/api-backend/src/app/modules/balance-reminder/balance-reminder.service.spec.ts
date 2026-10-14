@@ -729,15 +729,10 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         expect(res.skipped[0].reason).toBe('skipped-payment-pending');
       });
 
-      it('skipped-already-warned from a prior WARNING log', async () => {
+      it('a customer already warned this month is still would-send (warnings can be re-sent)', async () => {
         const res: any = await preview([wcust()], [statementLog(['c1'])], [warnLog(['c1'])]);
-        expect(res.skipped[0].reason).toBe('skipped-already-warned');
-      });
-
-      it('skipped-already-warned from the redis month marker', async () => {
-        (service as any).redis = makeRedis(['balance-warning-sent:v1:c1']);
-        const res: any = await preview([wcust()], [statementLog(['c1'])]);
-        expect(res.skipped[0].reason).toBe('skipped-already-warned');
+        expect(res.totalWouldSend).toBe(1);
+        expect(res.wouldSend[0].reason).toBe('would-send');
       });
 
       it('skipped-new-customer when createdAt is on/after month end', async () => {
@@ -873,13 +868,10 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         expect(since).toEqual(OLD_STATEMENT);
       });
 
-      it('on success sets BOTH the 23h cooldown key and the warning-month key', async () => {
+      it('on success sets only the 23h cooldown key (no once-per-month warning marker)', async () => {
         await sendWarn([wcust()]);
         const keys = redis.set.mock.calls.map((c) => c[0]);
-        expect(keys).toEqual(expect.arrayContaining([
-          expect.stringContaining('balance-reminder-cooldown:v1:c1'),
-          'balance-warning-sent:v1:c1:2026-08',
-        ]));
+        expect(keys).toEqual([expect.stringContaining('balance-reminder-cooldown:v1:c1')]);
       });
 
       it('log row: kind WARNING, includeStatement false, minBalance = warningMinBalance', async () => {

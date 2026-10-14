@@ -54,7 +54,6 @@ const REASON_LABELS: Record<string, string> = {
   'skipped-too-soon': 'TOO SOON',
   'skipped-paid': 'PAID',
   'skipped-payment-pending': 'PAYMENT PENDING',
-  'skipped-already-warned': 'ALREADY WARNED',
 };
 
 const REASON_STYLES: Record<string, string> = {
@@ -72,7 +71,6 @@ const REASON_STYLES: Record<string, string> = {
   'skipped-too-soon': 'bg-amber-500/10 text-amber-400',
   'skipped-paid': 'bg-emerald-500/10 text-emerald-400',
   'skipped-payment-pending': 'bg-blue-500/10 text-blue-400',
-  'skipped-already-warned': 'bg-violet-500/10 text-violet-400',
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -214,8 +212,7 @@ export default function BalanceRemindersPage() {
   const isWarning = sendType === 'warning';
   const effectiveIncludeStatement = isStatementOnly ? true : isWarning ? false : includeStatement;
   // Overdue-warning has no cooldown-bypass toggle in its UI — the 23h send cooldown is
-  // bypassed by default for it instead (a warning already has its own once-per-month
-  // "already warned" gate, so the extra 23h lock only got in the way here).
+  // bypassed for it instead — a warning can be re-sent any number of times.
   const effectiveForce = isStatementOnly ? false : isWarning ? true : forceOverride;
 
   const buildSendPayload = (dryRun = false) => {
