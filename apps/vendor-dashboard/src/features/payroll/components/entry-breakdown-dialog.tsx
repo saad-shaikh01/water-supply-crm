@@ -401,15 +401,34 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                     <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
                       Ledger Entries by Bucket
                     </h3>
-                    {canLogEntry && periodWritable && (
-                      <Button
-                        size="sm" variant="outline"
-                        className="rounded-lg h-7 text-xs font-bold gap-1.5"
-                        onClick={() => setAddAdjustmentOpen(true)}
-                      >
-                        <Plus className="h-3.5 w-3.5" /> Add Adjustment
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {(data.entry.status === 'APPROVED' || data.entry.status === 'UNDER_REVIEW') && canApprove && (
+                        <Button
+                          size="sm" variant="outline"
+                          className="rounded-lg h-7 text-xs font-bold gap-1.5"
+                          title="Re-read the current salary structure and ledger, and refresh this entry's numbers"
+                          disabled={isRecalculating}
+                          onClick={() =>
+                            recalculateEntry(
+                              { id: data.entry.id, version: data.entry.version },
+                              { onSuccess: () => refetch() },
+                            )
+                          }
+                        >
+                          {isRecalculating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Recalculate
+                        </Button>
+                      )}
+                      {canLogEntry && periodWritable && (
+                        <Button
+                          size="sm" variant="outline"
+                          className="rounded-lg h-7 text-xs font-bold gap-1.5"
+                          onClick={() => setAddAdjustmentOpen(true)}
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Add Adjustment
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   {hasUnreflectedLedgerChanges && (
                     <div className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
