@@ -1,8 +1,8 @@
 'use client';
 
-import { ReactNode, CSSProperties, useEffect, useMemo, useState } from 'react';
+import { ReactNode, CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
   Button, Skeleton, DataTablePagination,
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem,
@@ -141,6 +141,32 @@ export function DataTable<T extends { id: string }>({
     writeColumnPrefs(tableId, {});
   };
 
+  // Totals bar lives outside the table (the Table wrapper is overflow-auto, which would stop a
+  // tfoot sticking to the viewport). It mirrors the header cells' widths and the table's horizontal scroll.
+  const tableBoxRef = useRef<HTMLDivElement>(null);
+  const [colWidths, setColWidths] = useState<number[]>([]);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [tableWidth, setTableWidth] = useState(0);
+  const summaryOpen = !!summary?.open;
+  useEffect(() => {
+    if (!summaryOpen) return;
+    const box = tableBoxRef.current;
+    const table = box?.querySelector('table');
+    const scroller = table?.parentElement;
+    if (!box || !table || !scroller) return;
+    const measure = () => {
+      const ths = Array.from(table.querySelectorAll('thead th')) as HTMLElement[];
+      setColWidths(ths.map((th) => th.getBoundingClientRect().width));
+      setTableWidth(table.getBoundingClientRect().width);
+      setScrollLeft(scroller.scrollLeft);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(table);
+    scroller.addEventListener('scroll', measure, { passive: true });
+    return () => { ro.disconnect(); scroller.removeEventListener('scroll', measure); };
+  }, [summaryOpen, visibleColumns, data, selectable]);
+
   const columnToggle = tableId && optionalColumns.length > 0 && (
     <div className="flex justify-end mb-3">
       <DropdownMenu>
@@ -204,7 +230,7 @@ export function DataTable<T extends { id: string }>({
   return (
     <div className="flex flex-col min-h-0 flex-1 relative">
       {columnToggle}
-      <div className="rounded-2xl border border-border bg-white/[0.02] backdrop-blur-2xl overflow-hidden shadow-2xl mb-6">
+      <div ref={tableBoxRef} className="rounded-2xl border border-border bg-white/[0.02] backdrop-blur-2xl overflow-hidden shadow-2xl mb-6">
         <Table>
           <TableHeader>
             <TableRow className="bg-white/[0.01] hover:bg-white/[0.01] border-b border-border">
@@ -301,32 +327,29 @@ export function DataTable<T extends { id: string }>({
               ))
             )}
           </TableBody>
-          {summary?.open && (
-            <TableFooter>
-              <TableRow className="bg-primary/[0.04] hover:bg-primary/[0.04] border-t-2 border-primary/20">
-                {selectable && <TableCell className="w-10" />}
-                {visibleColumns.map((col, i) => (
-                  <TableCell key={col.key} className="py-3 px-4 sm:py-4 sm:px-6 align-top">
-                    {i === 0 && summary.label && (
-                      <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-primary mb-1">
-                        {summary.label}
-                      </div>
-                    )}
-                    {summary.isLoading ? (
-                      <Skeleton className="h-4 w-16 rounded-full" />
-                    ) : (
-                      col.footer
-                    )}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableFooter>
-          )}
         </Table>
       </div>
 
       {summary && (
-        <div className="sticky bottom-[4.5rem] z-30 mb-2">
+        <div className="sticky bottom-[4.5rem] z-30 mb-2 flex flex-col gap-1.5">
+          {summary.open && (
+            <div className="overflow-hidden rounded-2xl border border-primary/30 bg-background/95 dark:bg-[#0a0a0f]/90 backdrop-blur-2xl shadow-lg">
+              <div className="flex" style={{ width: tableWidth || undefined, transform: `translateX(-${scrollLeft}px)` }}>
+                {(selectable ? [null, ...visibleColumns] : visibleColumns).map((col, i) => {
+                  const idx = i;
+                  const firstData = selectable ? 1 : 0;
+                  return (
+                    <div key={col?.key ?? 'select'} className="shrink-0 py-3 px-4 sm:px-6 box-border" style={{ width: colWidths[idx] }}>
+                      {col && idx === firstData && summary.label && (
+                        <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-primary mb-1">{summary.label}</div>
+                      )}
+                      {col && (summary.isLoading ? <Skeleton className="h-4 w-16 rounded-full" /> : col.footer)}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={summary.onToggle}
