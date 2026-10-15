@@ -546,9 +546,9 @@ export class DashboardService {
     // Per customer: opening balance of month M = live financialBalance minus
     // every ledger row booked on/after M's first day (same derivation as
     // CustomerService.computePrevMonthOutstanding). Only customers who owe
-    // (opening > 0) count; credit balances are not netted against others' debt.
+    // (opening > 0) count, and only active customers; credit balances are not netted against others' debt.
     const customerBalances = await this.prisma.customer.findMany({
-      where: { vendorId },
+      where: { vendorId, isActive: true },
       select: { id: true, financialBalance: true },
     });
     const laterActivityByMonth = await Promise.all(

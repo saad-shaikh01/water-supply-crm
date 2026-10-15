@@ -202,8 +202,13 @@ export class CustomerService {
     return customer;
   }
 
-  async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, groupId, subGroupId, ungrouped, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, rateProductId, rateAbove, rateBelow, rateAmount, codeRef, createdDateRef, rangeDir, sort = 'name', sortDir = 'asc' } = query;
+  /**
+   * Builds the Prisma `where` for the customer list from the query filters.
+   * Shared by the paginated list and the list-wide stats so both always
+   * describe exactly the same set of customers.
+   */
+  private async buildCustomerWhere(vendorId: string, query: CustomerQueryDto): Promise<any> {
+    const { search, routeId, groupId, subGroupId, ungrouped, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, rateProductId, rateAbove, rateBelow, rateAmount, codeRef, createdDateRef, rangeDir } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -385,6 +390,13 @@ export class CustomerService {
         this.intersectWhereIds(where, matchIds);
       }
     }
+
+    return where;
+  }
+
+  async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
+    const { page = 1, limit = 20, rateProductId, sort = 'name', sortDir = 'asc' } = query;
+    const where = await this.buildCustomerWhere(vendorId, query);
 
     const listInclude = {
       route: { select: { id: true, name: true } },
@@ -584,6 +596,104 @@ export class CustomerService {
     });
 
     return paginate(dataWithLastDelivery, total, page, limit);
+  }
+
+  /**
+   * Column totals for the customer list footer, computed over EVERY customer
+   * matching the list filters (not just the current page). Uses the same
+   * `where` as `findAllPaginated`, and the same figure definitions as its
+   * columns: pending = MONTHLY → previous-month outstanding, CASH → live
+   * financialBalance; sold = filled bottles dropped on DELIVERY transactions.
+   */
+  async getListStats(vendorId: string, query: CustomerQueryDto) {
+    const where = await this.buildCustomerWhere(vendorId, query);
+
+    const customers = await this.prisma.customer.findMany({
+      where,
+      select: { id: true, paymentType: true, financialBalance: true },
+    });
+    const ids = customers.map((c) => c.id);
+
+    // Bottle rate averages over one product. Use the selected one, else the
+    // vendor's only active product (mirrors the list's single-product auto-select).
+    let rateProduct: { id: string; name: string; basePrice: number } | null = null;
+    if (query.rateProductId) {
+      rateProduct = await this.prisma.product.findFirst({
+        where: { id: query.rateProductId, vendorId },
+        select: { id: true, name: true, basePrice: true },
+      });
+    } else {
+      const active = await this.prisma.product.findMany({
+        where: { vendorId, isActive: true },
+        select: { id: true, name: true, basePrice: true },
+        take: 2,
+      });
+      if (active.length === 1) rateProduct = active[0];
+    }
+
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const soldAgg = (gte: Date, lt?: Date) =>
+      this.prisma.transaction.aggregate({
+        where: {
+          customerId: { in: ids },
+          vendorId,
+          type: TransactionType.DELIVERY,
+          createdAt: lt ? { gte, lt } : { gte },
+        },
+        _sum: { filledDropped: true },
+      });
+
+    const monthlyRows = customers.filter((c) => c.paymentType === 'MONTHLY');
+    const [prevOutstandingMap, walletAgg, soldThis, soldPrev, overrides] = await Promise.all([
+      this.computePrevMonthOutstanding(vendorId, monthlyRows),
+      this.prisma.bottleWallet.aggregate({
+        where: { customerId: { in: ids } },
+        _sum: { balance: true },
+      }),
+      soldAgg(thisMonthStart),
+      soldAgg(prevMonthStart, thisMonthStart),
+      rateProduct && ids.length
+        ? this.prisma.customerProductPrice.findMany({
+            where: { productId: rateProduct.id, customerId: { in: ids } },
+            select: { customerId: true, customPrice: true },
+          })
+        : Promise.resolve([] as Array<{ customerId: string; customPrice: number }>),
+    ]);
+
+    let owed = 0;
+    let credit = 0;
+    let pendingMonthly = 0;
+    let pendingCash = 0;
+    for (const c of customers) {
+      const bal = c.financialBalance ?? 0;
+      if (bal > 0) owed += bal;
+      else credit += -bal;
+      if (c.paymentType === 'MONTHLY') pendingMonthly += prevOutstandingMap.get(c.id) ?? 0;
+      else pendingCash += bal;
+    }
+
+    let rate: { avg: number; min: number; max: number; productName: string } | null = null;
+    if (rateProduct && ids.length) {
+      const overrideMap = new Map(overrides.map((o) => [o.customerId, o.customPrice]));
+      const rates = ids.map((id) => overrideMap.get(id) ?? rateProduct!.basePrice);
+      rate = {
+        avg: rates.reduce((s, r) => s + r, 0) / rates.length,
+        min: Math.min(...rates),
+        max: Math.max(...rates),
+        productName: rateProduct.name,
+      };
+    }
+
+    return {
+      count: customers.length,
+      payment: { total: owed - credit, owed, credit },
+      bottleBalance: { total: walletAgg._sum.balance ?? 0 },
+      sold: { thisMonth: soldThis._sum.filledDropped ?? 0, prevMonth: soldPrev._sum.filledDropped ?? 0 },
+      rate,
+      pending: { total: pendingMonthly + pendingCash, monthly: pendingMonthly, cash: pendingCash },
+    };
   }
 
   async findOne(vendorId: string, id: string) {

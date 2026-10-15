@@ -5,6 +5,7 @@ import { readBlobError, saveBlob } from '../../van-cash-ledger/lib/download-file
 
 const TOAST_ID = 'payroll-export';
 const SLIP_TOAST_ID = 'payroll-slip-pdf';
+const RECEIPT_TOAST_ID = 'payroll-receipt-pdf';
 
 /** Download one employee's salary slip as a PDF (same file that is sent on WhatsApp). */
 export function useSlipPdfDownload() {
@@ -24,6 +25,28 @@ export function useSlipPdfDownload() {
     },
     onError: async (error) => {
       toast.error(await readBlobError(error), { id: SLIP_TOAST_ID });
+    },
+  });
+}
+
+/** Download one employee's short A5 salary receipt as a PDF (same file that is sent on WhatsApp). */
+export function useReceiptPdfDownload() {
+  return useMutation<PayrollCsvDownload, unknown, { entryId: string; employeeName: string }>({
+    mutationKey: ['payroll-receipt-pdf'],
+    retry: 0,
+    mutationFn: async ({ entryId, employeeName }) => {
+      const download = await payrollApi.downloadReceiptPdf(entryId, `Salary-Receipt-${employeeName.replace(/[^A-Za-z0-9]+/g, '-')}.pdf`);
+      saveBlob(download.blob, download.filename);
+      return download;
+    },
+    onMutate: () => {
+      toast.loading('Preparing salary receipt…', { id: RECEIPT_TOAST_ID });
+    },
+    onSuccess: (download) => {
+      toast.success('Salary receipt downloaded', { id: RECEIPT_TOAST_ID, description: download.filename });
+    },
+    onError: async (error) => {
+      toast.error(await readBlobError(error), { id: RECEIPT_TOAST_ID });
     },
   });
 }

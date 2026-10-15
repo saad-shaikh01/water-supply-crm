@@ -313,5 +313,9 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
     const res = await service.getMonthlySummary('vendor-1', 1);
 
     expect(res[0].pendingBalance).toBe(1100);
+    // Only active customers feed the pending balance.
+    expect(mockPrisma.customer.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { vendorId: 'vendor-1', isActive: true } }),
+    );
   });
 });

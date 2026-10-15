@@ -8,7 +8,7 @@ import type {
   PaymentTypeValue,
   BottleWalletAdjustmentResult,
 } from '@water-supply-crm/types';
-import { customersApi } from '../api/customers.api';
+import { customersApi, type CustomerQuery } from '../api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 export const useCustomers = () => {
@@ -75,6 +75,7 @@ export const useCustomers = () => {
   };
 
   return {
+    params: params as CustomerQuery,
     ...useQuery({
       queryKey: queryKeys.customers.all(params),
       queryFn: () => customersApi.getAll(params).then((r) => r.data),
@@ -123,6 +124,22 @@ export const useCustomers = () => {
     sortDir,
     setSortDir,
   };
+};
+
+/**
+ * Column totals for the customer list footer. Same filters as useCustomers
+ * (page/limit/sort dropped) so the totals always match the filtered list.
+ * Only fetched while the footer is open (`enabled`).
+ */
+export const useCustomerStats = (params: CustomerQuery, enabled: boolean) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { page, limit, sort, sortDir, ...filters } = params;
+  return useQuery({
+    queryKey: queryKeys.customers.stats(filters),
+    queryFn: () => customersApi.getStats(filters).then((r) => r.data),
+    enabled,
+    staleTime: 30_000,
+  });
 };
 
 export const useAllCustomers = () => {

@@ -17,7 +17,7 @@ import { SearchInput } from '../../../components/shared/filters/search-input';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { toast } from 'sonner';
-import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers, isDeactivateBlockedError } from '../hooks/use-customers';
+import { useCustomers, useCustomerStats, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers, isDeactivateBlockedError } from '../hooks/use-customers';
 import { productsApi } from '../../products/api/products.api';
 import { CustomerForm } from './customer-form';
 import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
@@ -63,8 +63,21 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     outstandingMonthly, setOutstandingMonthly, outstandingCash, setOutstandingCash, minPendingAmount, setMinPendingAmount,
     rateProductId, setRateProductId, rateAbove, setRateAbove, rateBelow, setRateBelow, rateAmount, setRateAmount,
     codeRef, setCodeRef, createdDateRef, setCreatedDateRef, rangeDir, setRangeDir,
-    sort, setSort, sortDir, setSortDir,
+    sort, setSort, sortDir, setSortDir, params: listParams,
   } = useCustomers();
+  // Expandable column-totals row — remembered per browser; stats are only fetched while open.
+  const [totalsOpen, setTotalsOpen] = useState(false);
+  useEffect(() => {
+    try { setTotalsOpen(window.localStorage.getItem('wsc:customers-totals-open') === '1'); } catch { /* ignore */ }
+  }, []);
+  const toggleTotals = () => {
+    setTotalsOpen((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem('wsc:customers-totals-open', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const { data: stats, isLoading: statsLoading } = useCustomerStats(listParams, totalsOpen);
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
@@ -761,6 +774,13 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         onToggleAll={toggleAllOnPage}
         rowStyle={(r) => flagRowStripeStyle(r.flags)}
         tableId="customers-list"
+        summary={{
+          open: totalsOpen,
+          onToggle: toggleTotals,
+          isLoading: statsLoading,
+          label: `Total · ${stats?.count ?? total} customers`,
+          caption: `${total} customers`,
+        }}
         columns={[
           {
             key: 'name',
@@ -860,6 +880,15 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             header: 'Payment',
             sortable: true,
             sortField: 'financialBalance',
+            footer: stats && (
+              <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                <span className={cn("font-mono font-bold text-xs", stats.payment.total > 0 ? "text-rose-400" : "text-emerald-400")}>
+                  ₨ {stats.payment.total.toLocaleString()}
+                </span>
+                <span className="text-[9px] text-muted-foreground/70">Owed ₨ {stats.payment.owed.toLocaleString()}</span>
+                <span className="text-[9px] text-muted-foreground/70">Advance ₨ {stats.payment.credit.toLocaleString()}</span>
+              </div>
+            ),
             cell: (r) => {
               const balance = Number(r.financialBalance ?? 0);
               const isOwed = balance > 0;
@@ -877,6 +906,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             key: 'bottleBalance',
             header: 'Bottle Balance',
             sortable: true,
+            footer: stats && (
+              <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                <span className="font-mono font-bold text-xs text-foreground dark:text-white">{stats.bottleBalance.total} btl</span>
+                <span className="text-[9px] text-muted-foreground/70">Total balance</span>
+              </div>
+            ),
             cell: (r) => {
               const wallets = (r.wallets ?? []).filter((w) => Number(w.balance ?? 0) !== 0);
               const total = wallets.reduce((s, w) => s + Number(w.balance ?? 0), 0);
@@ -901,6 +936,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'soldBottles',
             header: 'Sold Bottles',
+            footer: stats && (
+              <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                <span className="text-xs font-mono font-bold text-foreground dark:text-white">
+                  {stats.sold.thisMonth} <span className="text-[9px] font-medium text-muted-foreground/70">this month</span>
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {stats.sold.prevMonth} <span className="text-[9px] text-muted-foreground/60">last month</span>
+                </span>
+              </div>
+            ),
             cell: (r) => (
               <div className="flex flex-col gap-0.5 whitespace-nowrap">
                 <span className="text-xs font-mono font-bold text-foreground dark:text-white">
@@ -915,6 +960,17 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'bottleRate',
             header: 'Bottle Rate',
+            footer: stats && (stats.rate ? (
+              <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                <span className="font-mono font-bold text-xs text-foreground dark:text-white">
+                  ₨ {Math.round(stats.rate.avg * 100) / 100} <span className="text-[9px] font-medium text-muted-foreground/70">avg</span>
+                </span>
+                <span className="text-[9px] text-muted-foreground/70">₨ {stats.rate.min} – ₨ {stats.rate.max}</span>
+                <span className="text-[9px] text-muted-foreground/60 truncate max-w-[120px]">{stats.rate.productName}</span>
+              </div>
+            ) : (
+              <span className="text-[9px] text-muted-foreground/60">Select a product in Filters</span>
+            )),
             cell: (r) => {
               if (r.bottleRate == null) {
                 return <span className="text-xs text-muted-foreground/40">—</span>;
@@ -935,6 +991,15 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             key: 'pendingAmount',
             header: 'Pending Amount',
             sortable: true,
+            footer: stats && (
+              <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                <span className={cn("font-mono font-bold text-xs", stats.pending.total > 0 ? "text-rose-400" : "text-emerald-400")}>
+                  ₨ {stats.pending.total.toLocaleString()}
+                </span>
+                <span className="text-[9px] text-muted-foreground/70">Monthly (prev) ₨ {stats.pending.monthly.toLocaleString()}</span>
+                <span className="text-[9px] text-muted-foreground/70">Cash ₨ {stats.pending.cash.toLocaleString()}</span>
+              </div>
+            ),
             cell: (r) => {
               const isMonthly = r.paymentType === 'MONTHLY';
               // MONTHLY → what's still owed from last month; CASH → live overall balance

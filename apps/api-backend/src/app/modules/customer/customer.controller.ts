@@ -49,6 +49,13 @@ export class CustomerController {
     return this.customerService.findAllPaginated(user.vendorId, query);
   }
 
+  /** GET /customers/stats — column totals over every customer matching the list filters */
+  @Get('stats')
+  @RequirePermissions('customers:view')
+  getListStats(@CurrentUser() user: AuthUser, @Query() query: CustomerQueryDto) {
+    return this.customerService.getListStats(user.vendorId, query);
+  }
+
   // ── Pricing (governed by the pricing permission set, not customer perms) ────
   /** POST /customers/pricing/preview — dry-run filter, returns count + customer list */
   @Post('pricing/preview')

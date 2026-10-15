@@ -8,6 +8,7 @@ export const queryKeys = {
   },
   customers: {
     all: (params: object) => ['customers', params] as const,
+    stats: (params: object) => ['customers', 'stats', params] as const,
     one: (id: string) => ['customers', id] as const,
   },
   // Customer Flags (owner-requested 2026-09-29).

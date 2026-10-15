@@ -31,8 +31,19 @@ export interface CustomerQuery {
   sortDir?: 'asc' | 'desc';
 }
 
+/** Column totals over every customer matching the list filters (GET /customers/stats). */
+export interface CustomerListStats {
+  count: number;
+  payment: { total: number; owed: number; credit: number };
+  bottleBalance: { total: number };
+  sold: { thisMonth: number; prevMonth: number };
+  rate: { avg: number; min: number; max: number; productName: string } | null;
+  pending: { total: number; monthly: number; cash: number };
+}
+
 export const customersApi = {
   getAll: (params: CustomerQuery) => apiClient.get('/customers', { params }),
+  getStats: (params: CustomerQuery) => apiClient.get<CustomerListStats>('/customers/stats', { params }),
   getOne: (id: string) => apiClient.get(`/customers/${id}`),
   create: (data: Record<string, unknown>) => apiClient.post('/customers', data),
   update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/customers/${id}`, data),

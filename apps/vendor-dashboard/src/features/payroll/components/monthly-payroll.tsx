@@ -9,7 +9,7 @@ import { cn } from '@water-supply-crm/ui';
 import {
   CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark, X,
   Clock, HandCoins, RefreshCcw, ArrowRightLeft, CheckCircle2, Eye, UserX, TrendingDown,
-  Download, FileDown, MessageCircle, ChevronDown,
+  Download, FileDown, MessageCircle, ChevronDown, Receipt,
 } from 'lucide-react';
 import type { PayrollEntry } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -26,7 +26,7 @@ import { SettlementDialog } from './settlement-dialog';
 import { useLockEntry } from '../hooks/use-settlement';
 import { SalaryStructureDialog } from './salary-structure-dialog';
 import { SendSlipsDialog, SlipDispatchResultDialog } from './send-slips-dialog';
-import { usePayrollExport, useSlipPdfDownload } from '../hooks/use-payroll-export';
+import { usePayrollExport, useReceiptPdfDownload, useSlipPdfDownload } from '../hooks/use-payroll-export';
 import { useSlipStatus } from '../hooks/use-salary-slips';
 import { slipChip, slipDisabledReason, type SlipChipTone } from '../lib/salary-slips';
 
@@ -175,6 +175,7 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const [lockEntryTarget, setLockEntryTarget] = useState<PayrollEntry | null>(null);
   const { mutate: exportCsv, isPending: isExporting } = usePayrollExport();
   const { mutate: downloadSlip, isPending: isDownloadingSlip, variables: downloadingSlipVars } = useSlipPdfDownload();
+  const { mutate: downloadReceipt, isPending: isDownloadingReceipt, variables: downloadingReceiptVars } = useReceiptPdfDownload();
   const { data: slipStatus } = useSlipStatus(period?.id, canViewAll);
 
   // Salary slips: row selection for "Send selected", the confirm dialog (entryIds null = everyone) and the results dialog.
@@ -656,6 +657,26 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                           <FileDown className="h-3 w-3" />
                         )}
                         PDF
+                      </Button>
+                    )}
+                    {showPdf && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold gap-1"
+                        disabled={isDownloadingReceipt && downloadingReceiptVars?.entryId === r.id}
+                        title={slipBlockedReason ? 'Download a preview of this receipt (stamped NOT FINAL)' : 'Download this salary receipt as PDF'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadReceipt({ entryId: r.id, employeeName: r.user.name });
+                        }}
+                      >
+                        {isDownloadingReceipt && downloadingReceiptVars?.entryId === r.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Receipt className="h-3 w-3" />
+                        )}
+                        Receipt
                       </Button>
                     )}
                     {showSlip && (

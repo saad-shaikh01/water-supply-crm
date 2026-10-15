@@ -2,12 +2,12 @@
 
 import { ReactNode, CSSProperties, useEffect, useMemo, useState } from 'react';
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
   Button, Skeleton, DataTablePagination,
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem,
 } from '@water-supply-crm/ui';
-import { Inbox, ChevronUp, ChevronDown, ChevronsUpDown, Columns3 } from 'lucide-react';
+import { Inbox, ChevronUp, ChevronDown, ChevronsUpDown, Columns3, Sigma } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
 interface Column<T> {
@@ -23,6 +23,8 @@ interface Column<T> {
   essential?: boolean;
   /** Whether an optional (non-essential) column starts visible before the user customizes it. Defaults to true. */
   defaultVisible?: boolean;
+  /** Content for this column's cell in the expandable totals row (see `summary`). */
+  footer?: ReactNode;
 }
 
 interface DataTableProps<T> {
@@ -53,6 +55,19 @@ interface DataTableProps<T> {
    * choices in localStorage under this key, per browser.
    */
   tableId?: string;
+  /**
+   * Expandable totals row. A toggle bar sits above the pagination; when `open`, a footer row
+   * renders each column's `footer` node directly beneath that column (hidden columns drop out).
+   */
+  summary?: {
+    open: boolean;
+    onToggle: () => void;
+    isLoading?: boolean;
+    /** Text shown in the first column's footer cell, e.g. "Total · 80 customers". */
+    label?: ReactNode;
+    /** Short hint on the toggle bar, e.g. "80 customers". */
+    caption?: ReactNode;
+  };
 }
 
 const COLUMN_PREFS_PREFIX = 'wsc:dt-cols:';
@@ -95,6 +110,7 @@ export function DataTable<T extends { id: string }>({
   onToggleAll,
   rowStyle,
   tableId,
+  summary,
 }: DataTableProps<T>) {
   const allOnPageSelected = selectable && !!data?.length && data.every((row) => selectedIds?.has(row.id));
 
@@ -285,9 +301,48 @@ export function DataTable<T extends { id: string }>({
               ))
             )}
           </TableBody>
+          {summary?.open && (
+            <TableFooter>
+              <TableRow className="bg-primary/[0.04] hover:bg-primary/[0.04] border-t-2 border-primary/20">
+                {selectable && <TableCell className="w-10" />}
+                {visibleColumns.map((col, i) => (
+                  <TableCell key={col.key} className="py-3 px-4 sm:py-4 sm:px-6 align-top">
+                    {i === 0 && summary.label && (
+                      <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-primary mb-1">
+                        {summary.label}
+                      </div>
+                    )}
+                    {summary.isLoading ? (
+                      <Skeleton className="h-4 w-16 rounded-full" />
+                    ) : (
+                      col.footer
+                    )}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableFooter>
+          )}
         </Table>
       </div>
-      
+
+      {summary && (
+        <div className="sticky bottom-[4.5rem] z-30 mb-2">
+          <button
+            type="button"
+            onClick={summary.onToggle}
+            aria-expanded={summary.open}
+            className="flex w-full items-center justify-between gap-2 rounded-2xl border border-border bg-background/95 dark:bg-[#0a0a0f]/80 backdrop-blur-2xl px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors shadow-lg"
+          >
+            <span className="flex items-center gap-2">
+              <Sigma className="h-3.5 w-3.5 text-primary" />
+              {summary.open ? 'Hide column totals' : 'Show column totals'}
+              {summary.caption && <span className="font-medium text-muted-foreground/70">· {summary.caption}</span>}
+            </span>
+            {summary.open ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
+
       {onPageChange && onLimitChange && (
         <div className="sticky bottom-4 z-30 mt-auto">
           <div className="mx-auto max-w-fit sm:max-w-none">

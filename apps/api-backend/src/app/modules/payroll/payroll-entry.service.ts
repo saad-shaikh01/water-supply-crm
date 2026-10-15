@@ -473,18 +473,37 @@ export class PayrollEntryService {
         );
       }
 
-      const before = { finalPayable: entry.finalPayable };
+      const before = { baseSalary: entry.baseSalary, finalPayable: entry.finalPayable };
+
+      // Re-derive the base from the salary structure currently effective on the period's end date, so a
+      // raise made after approval is picked up. If there isn't exactly one unambiguous structure, keep the
+      // stored base rather than guessing.
+      let baseSalary = entry.baseSalary;
+      const structures = await tx.salaryStructure.findMany({
+        where: {
+          vendorId: user.vendorId,
+          userId: entry.userId,
+          voidedAt: null,
+          effectiveFrom: { lte: entry.period.endDate },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: entry.period.endDate } }],
+        },
+      });
+      if (structures.length === 1) {
+        const attendanceByUser = await this.aggregateAttendance(tx, user.vendorId, entry.period);
+        baseSalary = this.resolvePeriodBase(structures[0], attendanceByUser.get(entry.userId));
+      }
+
       const { buckets, carryForwardIn, deferredIn, deferredOut, finalPayable } = await this.computeEntryBreakdown(
         tx,
         user.vendorId,
         entry.userId,
         entry.period,
-        entry.baseSalary,
+        baseSalary,
       );
 
       const claim = await tx.payrollEntry.updateMany({
         where: { id: entryId, vendorId: user.vendorId, version },
-        data: { ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, version: { increment: 1 } },
+        data: { baseSalary, ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, version: { increment: 1 } },
       });
       if (claim.count === 0) {
         throw versionMismatch(entry.version, version);
@@ -499,7 +518,7 @@ export class PayrollEntryService {
           actorRole: user.role,
           action: PayrollAuditAction.REGENERATED,
           beforeJson: before,
-          afterJson: { finalPayable: updated.finalPayable },
+          afterJson: { baseSalary: updated.baseSalary, finalPayable: updated.finalPayable },
         },
       });
 
