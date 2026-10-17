@@ -7,9 +7,7 @@ import {
   Body,
   Param,
   Query,
-  Res,
 } from '@nestjs/common';
-import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { RouteService } from './route.service';
 import { CreateRouteDto } from './dto/create-route.dto';
@@ -31,14 +29,12 @@ export class RouteController {
   }
 
   // Was open to any authenticated user (no @Roles) → now gated by routes:view.
+  // No HTTP Cache-Control here (was 'private, max-age=300') — see van.controller.ts
+  // findAll for why: the browser cache can't be invalidated when a route
+  // changes, so pickers kept showing stale/deleted routes after an edit.
   @Get()
   @RequirePermissions('routes:view')
-  findAll(
-    @CurrentUser() user: AuthUser,
-    @Query() query: RouteQueryDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    res.setHeader('Cache-Control', 'private, max-age=300');
+  findAll(@CurrentUser() user: AuthUser, @Query() query: RouteQueryDto) {
     return this.routeService.findAllPaginated(user.vendorId, query);
   }
 

@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@water-supply-crm/database';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
@@ -21,13 +22,20 @@ export class VehicleService {
       if (!van) throw new NotFoundException('Van not found');
     }
 
-    return this.prisma.vehicle.create({
-      data: {
-        vendorId,
-        plateNumber: dto.plateNumber,
-        usualVanId: dto.usualVanId ?? null,
-      },
-    });
+    try {
+      return await this.prisma.vehicle.create({
+        data: {
+          vendorId,
+          plateNumber: dto.plateNumber,
+          usualVanId: dto.usualVanId ?? null,
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('A vehicle with this plate number already exists');
+      }
+      throw e;
+    }
   }
 
   async update(vendorId: string, id: string, dto: UpdateVehicleDto) {
@@ -39,13 +47,20 @@ export class VehicleService {
       if (!van) throw new NotFoundException('Van not found');
     }
 
-    return this.prisma.vehicle.update({
-      where: { id },
-      data: {
-        ...(dto.plateNumber !== undefined && { plateNumber: dto.plateNumber }),
-        ...(dto.usualVanId !== undefined && { usualVanId: dto.usualVanId }),
-      },
-    });
+    try {
+      return await this.prisma.vehicle.update({
+        where: { id },
+        data: {
+          ...(dto.plateNumber !== undefined && { plateNumber: dto.plateNumber }),
+          ...(dto.usualVanId !== undefined && { usualVanId: dto.usualVanId }),
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('A vehicle with this plate number already exists');
+      }
+      throw e;
+    }
   }
 
   async deactivate(vendorId: string, id: string) {

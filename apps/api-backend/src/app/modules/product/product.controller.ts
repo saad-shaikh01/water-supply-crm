@@ -7,9 +7,7 @@ import {
   Body,
   Param,
   Query,
-  Res,
 } from '@nestjs/common';
-import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -31,14 +29,12 @@ export class ProductController {
   }
 
   // Was open to any authenticated user (no @Roles) → now gated by products:view.
+  // No HTTP Cache-Control here (was 'private, max-age=300') — see van.controller.ts
+  // findAll for why: the browser cache can't be invalidated when a product
+  // changes, so pickers kept showing stale entries after an update/toggle.
   @Get()
   @RequirePermissions('products:view')
-  findAll(
-    @CurrentUser() user: AuthUser,
-    @Query() query: ProductQueryDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    res.setHeader('Cache-Control', 'private, max-age=300');
+  findAll(@CurrentUser() user: AuthUser, @Query() query: ProductQueryDto) {
     return this.productService.findAll(user.vendorId, query);
   }
 

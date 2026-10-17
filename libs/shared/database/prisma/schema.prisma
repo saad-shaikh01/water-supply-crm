@@ -958,7 +958,10 @@ model Van {
   // Vehicle.plateNumber (below) is the real, authoritative plate for
   // everything Fleet-specific (odometer, fuel, documents, maintenance).
   // Retiring Van.plateNumber from the rest of the app is a follow-up task.
-  plateNumber String @unique
+  // Unique PER VENDOR (not globally) — two different vendors' fleets may
+  // coincidentally use the same route label. See migration
+  // van_plate_number_unique_per_vendor.
+  plateNumber String
 
   isActive          Boolean @default(true)
   // Walk-in / Self-Pickup Delivery — a per-vendor sentinel van that owns the
@@ -1001,6 +1004,8 @@ model Van {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([vendorId, plateNumber])
 }
 
 // Fleet Operations & Vehicle Intelligence — Amendment §17 (2026-08-21): the
@@ -1012,7 +1017,9 @@ model Vehicle {
   id          String @id @default(uuid())
   vendorId    String
   vendor      Vendor @relation(fields: [vendorId], references: [id])
-  plateNumber String @unique
+  // Unique PER VENDOR (not globally) — see migration van_plate_number_unique_per_vendor,
+  // which applied the same fix to Van.plateNumber for the same reason.
+  plateNumber String
 
   isActive Boolean @default(true)
 
@@ -1032,6 +1039,7 @@ model Vehicle {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([vendorId, plateNumber])
   @@index([vendorId])
   @@index([usualVanId])
 }

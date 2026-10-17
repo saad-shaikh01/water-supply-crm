@@ -3456,7 +3456,7 @@ export class DailySheetService implements OnModuleInit {
     });
     if (!van) {
       van = await this.prisma.van.upsert({
-        where: { plateNumber },
+        where: { vendorId_plateNumber: { vendorId, plateNumber } },
         update: { isSystem: true, isActive: true },
         create: { vendorId, plateNumber, isSystem: true, isActive: true },
         select: { id: true },

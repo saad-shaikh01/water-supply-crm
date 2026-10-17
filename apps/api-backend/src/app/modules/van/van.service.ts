@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@water-supply-crm/database';
 import {
   CacheInvalidationService,
@@ -33,9 +34,17 @@ export class VanService {
     if (dto.defaultSalesmanId) {
       await validateSalesmanAssignment(this.prisma, vendorId, dto.defaultSalesmanId);
     }
-    const van = await this.prisma.van.create({
-      data: { ...dto, vendorId },
-    });
+    let van;
+    try {
+      van = await this.prisma.van.create({
+        data: { ...dto, vendorId },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('A route with this plate/name already exists');
+      }
+      throw e;
+    }
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.VANS);
     return van;
   }
@@ -140,11 +149,19 @@ export class VanService {
       await validateSalesmanAssignment(this.prisma, vendorId, dto.defaultSalesmanId);
     }
 
-    const updated = await this.prisma.van.update({
-      where: { id },
-      data: dto,
-      include: this.vanInclude,
-    });
+    let updated;
+    try {
+      updated = await this.prisma.van.update({
+        where: { id },
+        data: dto,
+        include: this.vanInclude,
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('A route with this plate/name already exists');
+      }
+      throw e;
+    }
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.VANS);
     return updated;
   }
