@@ -16,4 +16,5 @@ export * from './lib/components/ui/separator';
 export * from './lib/components/ui/avatar';
 export * from './lib/components/ui/pagination';
 export * from './lib/components/ui/accordion';
+export * from './lib/components/maintenance-gate';
 export * from './lib/utils';
