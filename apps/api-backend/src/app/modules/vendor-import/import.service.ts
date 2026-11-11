@@ -726,11 +726,11 @@ export class ImportService {
 
     // Plan limit: one pre-check for the whole batch (not per row) so the vendor gets one readable error
     // instead of hundreds of failed rows. Fails open on infra errors (see PlanLimitService).
-    if (batch.entity === 'CUSTOMERS_OPENING') {
+    if (this.planLimits && batch.entity === 'CUSTOMERS_OPENING') {
       const adding = await this.prisma.importRow.count({
         where: { batchId: id, action: 'CREATE', result: { in: ['PENDING', 'FAILED'] } },
       });
-      if (adding > 0) await this.planLimits?.assertCanCreate(vendorId, 'CUSTOMER', adding);
+      if (adding > 0) await this.planLimits.assertCanCreate(vendorId, 'CUSTOMER', adding);
     }
 
     // Atomic claim: only one caller can move the batch to QUEUED.
