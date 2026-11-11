@@ -307,7 +307,7 @@ describe('Phase 3 observability', () => {
       const api = Cypress.env('apiUrl');
       cy.request({ url: `${api}/vendors?limit=20`, headers }).then((res) => {
         const vendor = (res.body.data as Array<{ id: string; name: string; isActive: boolean }>).find((v) => v.isActive !== false);
-        expect(vendor, 'an active vendor to suspend').to.exist;
+        expect(vendor, 'an active vendor to suspend').to.not.equal(undefined);
         cy.request({ method: 'PATCH', url: `${api}/vendors/${vendor?.id}/suspend`, headers, body: { reason: 'e2e observability smoke' }, failOnStatusCode: false });
         cy.request({ method: 'PATCH', url: `${api}/vendors/${vendor?.id}/unsuspend`, headers, body: { reason: 'e2e observability smoke' }, failOnStatusCode: false });
         cy.wrap(vendor?.name).as('vendorName');
