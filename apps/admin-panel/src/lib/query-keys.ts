@@ -33,6 +33,11 @@ export const queryKeys = {
     list: (p: object) => ['vendors', 'list', p] as const,
     detail: (id: string) => ['vendors', 'detail', id] as const,
     wipePreview: (id: string) => ['vendors', 'wipe-preview', id] as const,
+    stats: (id: string) => ['vendors', 'stats', id] as const,
+    users: (id: string, p: object) => ['vendors', 'users', id, p] as const,
+    readiness: (id: string) => ['vendors', 'readiness', id] as const,
+    branding: (id: string) => ['vendors', 'branding', id] as const,
+    audit: (id: string, p: object) => ['vendors', 'audit', id, p] as const,
   },
   whatsappAccounts: {
     all: ['whatsapp-accounts'] as const,

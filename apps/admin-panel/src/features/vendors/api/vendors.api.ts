@@ -1,17 +1,30 @@
 import { apiClient } from '@water-supply-crm/data-access';
+import { unwrap } from '../../../lib/api';
+import type {
+  BulkResult,
+  CreateVendorInputBody,
+  CreateVendorResult,
+  Paginated,
+  VendorListQuery,
+  VendorRow,
+} from '../types';
 
-export interface VendorQuery {
-  page?: number;
-  limit?: number;
-  search?: string;
-}
+/** Drop empty filter values so they are never sent as `?search=&status=`. */
+export const clean = <T extends object>(params: T) =>
+  Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')) as Partial<T>;
 
 export const vendorsApi = {
-  getAll: (params: VendorQuery) => apiClient.get('/vendors', { params }),
-  getOne: (id: string) => apiClient.get(`/vendors/${id}`),
-  create: (data: Record<string, unknown>) => apiClient.post('/vendors', data),
-  update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/vendors/${id}`, data),
+  getAll: (params: VendorListQuery) => unwrap<Paginated<VendorRow>>(apiClient.get('/vendors', { params: clean(params) })),
+  getOne: (id: string) => unwrap<VendorRow>(apiClient.get(`/vendors/${id}`)),
+  create: (data: CreateVendorInputBody) => unwrap<CreateVendorResult>(apiClient.post('/vendors', data)),
+  update: (id: string, data: Record<string, unknown>) => unwrap<VendorRow>(apiClient.patch(`/vendors/${id}`, data)),
   remove: (id: string) => apiClient.delete(`/vendors/${id}`),
+  suspend: (id: string, reason?: string) => apiClient.patch(`/vendors/${id}/suspend`, reason ? { reason } : {}),
+  unsuspend: (id: string, reason?: string) => apiClient.patch(`/vendors/${id}/unsuspend`, reason ? { reason } : {}),
+  bulkSuspend: (vendorIds: string[], reason?: string) =>
+    unwrap<BulkResult>(apiClient.post('/vendors/bulk/suspend', reason ? { vendorIds, reason } : { vendorIds })),
+  bulkUnsuspend: (vendorIds: string[], reason?: string) =>
+    unwrap<BulkResult>(apiClient.post('/vendors/bulk/unsuspend', reason ? { vendorIds, reason } : { vendorIds })),
 };
 
 export interface WipeBlocker {
@@ -38,8 +51,6 @@ export interface WipeInput {
 }
 
 export const vendorWipeApi = {
-  suspend: (id: string) => apiClient.patch(`/vendors/${id}/suspend`),
-  unsuspend: (id: string) => apiClient.patch(`/vendors/${id}/unsuspend`),
   preview: (id: string) => apiClient.get<WipePreview>(`/vendors/${id}/wipe/preview`).then((r) => r.data),
   wipe: ({ id, ...body }: WipeInput) =>
     // A large vendor can take a while; do not let the default client timeout abort a wipe that is still running server-side.
