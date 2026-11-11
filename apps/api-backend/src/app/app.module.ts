@@ -59,6 +59,11 @@ import { CustomerDepositsModule } from './modules/customer-deposits/customer-dep
 import { VendorImportModule } from './modules/vendor-import/vendor-import.module';
 import { VendorBrandingModule } from './modules/vendor-branding/vendor-branding.module';
 import { VendorReadinessModule } from './modules/vendor-readiness/vendor-readiness.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { AnnouncementsModule } from './modules/announcements/announcements.module';
+import { ImpersonationModule } from './modules/impersonation/impersonation.module';
+import { ImpersonationGuard } from './modules/impersonation/impersonation.guard';
+import { ImpersonationAuditInterceptor } from './modules/impersonation/impersonation-audit.interceptor';
 import { PlatformObservabilityModule } from './modules/platform-observability/platform-observability.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
@@ -119,6 +124,9 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     VendorImportModule,
     VendorBrandingModule,
     VendorReadinessModule,
+    BillingModule,
+    AnnouncementsModule,
+    ImpersonationModule,
     PlatformObservabilityModule,
   ],
   controllers: [AppController],
@@ -135,6 +143,9 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     { provide: APP_GUARD, useClass: PermissionsGuard },
     // 3. MaintenanceGuard: 503 for everyone but SUPER_ADMIN / exempt routes while maintenance is ON
     { provide: APP_GUARD, useClass: MaintenanceGuard },
+    //   3. ImpersonationGuard — read-only / blocklist enforcement for support (impersonation) tokens
+    { provide: APP_GUARD, useClass: ImpersonationGuard },
+    { provide: APP_INTERCEPTOR, useClass: ImpersonationAuditInterceptor },
   ],
 })
 export class AppModule implements NestModule {

@@ -4,6 +4,7 @@ import { NotificationFeedQueryDto } from './dto/notification-feed-query.dto';
 import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 // In-app notification bell — every authenticated identity (customer + vendor staff) sees
 // their OWN feed (service scopes by userId). Domain D: @AuthenticatedOnly, not customer-only.
@@ -40,6 +41,7 @@ export class NotificationPortalController {
    * PATCH /portal/notifications/read-all
    * Mark all notifications as read for the current user.
    */
+  @BlockWhenImpersonating()
   @Patch('read-all')
   markAllRead(@CurrentUser() user: AuthUser) {
     return this.notifService.markAllRead(user.userId);
@@ -49,6 +51,7 @@ export class NotificationPortalController {
    * PATCH /portal/notifications/:id/read
    * Mark a single notification as read.
    */
+  @BlockWhenImpersonating()
   @Patch(':id/read')
   markRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.notifService.markRead(user.userId, id);

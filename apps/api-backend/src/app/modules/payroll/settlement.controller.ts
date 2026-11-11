@@ -6,6 +6,7 @@ import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorat
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 /**
  * Settlement — recording actual disbursement against a locked PayrollEntry
@@ -22,6 +23,7 @@ export class SettlementController {
   constructor(private readonly settlements: SettlementService) {}
 
   /** POST /payroll/entries/:id/settlements — record one payment (full or partial). */
+  @BlockWhenImpersonating()
   @Post('entries/:id/settlements')
   @RequirePermissions('payroll:settlement_record')
   record(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RecordSettlementDto) {
@@ -29,6 +31,7 @@ export class SettlementController {
   }
 
   /** PATCH /payroll/entries/:id/mark-settled — explicit close-out without requiring a matching sum. */
+  @BlockWhenImpersonating()
   @Patch('entries/:id/mark-settled')
   @RequirePermissions('payroll:settlement_record')
   markSettled(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: MarkSettledDto) {

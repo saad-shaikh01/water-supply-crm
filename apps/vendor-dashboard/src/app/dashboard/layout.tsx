@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
+import { ImpersonationBanner } from '../../components/layout/impersonation-banner';
 import { DriverMobileNav } from '../../components/layout/driver-mobile-nav';
 import { RouteGuard } from '../../components/authz/route-guard';
 import { LockOverrideProvider } from '../../features/van-cash-ledger/lock-override/lock-override-provider';
@@ -9,7 +10,9 @@ import { LockOverrideProvider } from '../../features/van-cash-ledger/lock-overri
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <NuqsAdapter>
-      <div className="flex h-screen bg-background overflow-hidden selection:bg-primary selection:text-white">
+      <div className="flex h-screen flex-col bg-background overflow-hidden selection:bg-primary selection:text-white">
+      <ImpersonationBanner />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Desktop Sidebar */}
         <Sidebar className="hidden md:flex w-72 flex-col shrink-0" />
         
@@ -36,6 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </main>
           <DriverMobileNav />
         </div>
+      </div>
       </div>
       {/* Accounting-period override: one interceptor + dialog for every dashboard page. */}
       <LockOverrideProvider />

@@ -15,7 +15,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@water-supply-crm/ui';
-import { ArrowLeft, Eraser, MoreHorizontal, Pause, Pencil, Play, Trash2, Wrench } from 'lucide-react';
+import { ImpersonateDialog } from '../../../impersonation/components/impersonate-dialog';
+import { ArrowLeft, Eraser, UserCog, MoreHorizontal, Pause, Pencil, Play, Trash2, Wrench } from 'lucide-react';
 import { apiErrorMessage, useSuspendVendor, useUnsuspendVendor } from '../../hooks/use-vendors';
 import { useProvisionVendor } from '../../hooks/use-vendor-detail';
 import { VendorForm } from '../vendor-form';
@@ -39,6 +40,7 @@ export function VendorHeader({ vendor }: { vendor: VendorRow }) {
   const [repairResult, setRepairResult] = useState<ProvisionResult | null>(null);
   const [wipe, setWipe] = useState(false);
   const [del, setDel] = useState(false);
+  const [impersonate, setImpersonate] = useState(false);
 
   const active = vendor.isActive !== false;
 
@@ -72,6 +74,9 @@ export function VendorHeader({ vendor }: { vendor: VendorRow }) {
           <Button variant="outline" onClick={() => setConfirmRepair(true)}>
             <Wrench className="mr-1 h-4 w-4" /> Repair setup
           </Button>
+          <Button variant="outline" disabled={!active} title={active ? undefined : 'Cannot impersonate a suspended vendor'} onClick={() => setImpersonate(true)}>
+            <UserCog className="mr-1 h-4 w-4" /> Impersonate
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="More actions">
@@ -90,6 +95,7 @@ export function VendorHeader({ vendor }: { vendor: VendorRow }) {
         </div>
       </div>
 
+      <ImpersonateDialog vendorId={vendor.id} vendorName={vendor.name} open={impersonate} onOpenChange={setImpersonate} />
       <VendorForm open={edit} onOpenChange={setEdit} vendor={vendor} />
       <WipeVendorDialog vendor={wipe ? vendor : null} onOpenChange={(o) => !o && setWipe(false)} />
       <DeleteVendorDialog vendor={del ? vendor : null} onOpenChange={(o) => !o && setDel(false)} onDeleted={() => router.push('/vendors')} />

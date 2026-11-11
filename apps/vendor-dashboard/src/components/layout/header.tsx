@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
+import { isImpersonating } from '../../features/impersonation/session';
 import { syncVendorSessionFcmToken } from '../../features/auth/hooks/use-auth';
 import { QuickRecordPayment } from '../../features/transactions/components/quick-record-payment';
 import { RecordWalkInDelivery } from '../../features/daily-sheets/components/record-walk-in-delivery';
@@ -78,7 +79,8 @@ export function Header() {
   });
 
   const { mutate: markNotificationRead } = useMutation({
-    mutationFn: (id: string) => apiClient.patch(`/portal/notifications/${id}/read`),
+    // Support sessions must not mutate the vendor's read state (blocked server-side too).
+    mutationFn: (id: string) => (isImpersonating() ? Promise.resolve(null) : apiClient.patch(`/portal/notifications/${id}/read`)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vendor-notifications'] });
       queryClient.invalidateQueries({ queryKey: ['vendor-notifications-unread'] });
@@ -86,7 +88,8 @@ export function Header() {
   });
 
   useEffect(() => {
-    if (!user?.id) return;
+    // Never bind the admin's device to the impersonated vendor user.
+    if (!user?.id || isImpersonating()) return;
 
     const syncToken = () => {
       void syncVendorSessionFcmToken();

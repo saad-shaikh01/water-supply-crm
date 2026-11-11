@@ -10,6 +10,7 @@ import { RegisterFcmTokenDto } from './dto/register-fcm-token.dto';
 import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 // Self-service: any authenticated user registers/lists their own device tokens.
 @Controller('fcm')
@@ -18,11 +19,13 @@ import type { AuthUser } from '@water-supply-crm/types';
 export class FcmController {
   constructor(private readonly fcmService: FcmService) {}
 
+  @BlockWhenImpersonating()
   @Post('token')
   register(@CurrentUser() user: AuthUser, @Body() dto: RegisterFcmTokenDto) {
     return this.fcmService.registerToken(user.userId, dto.token, dto.platform);
   }
 
+  @BlockWhenImpersonating()
   @Delete('token')
   deleteToken(@Body() body: { token: string }) {
     return this.fcmService.deleteToken(body.token);

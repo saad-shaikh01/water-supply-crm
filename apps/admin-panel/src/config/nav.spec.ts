@@ -29,6 +29,8 @@ describe('nav registry', () => {
       'system-health',
       'imports',
       'whatsapp',
+      'billing',
+      'announcements',
       'platform-admins',
       'security',
       'settings',

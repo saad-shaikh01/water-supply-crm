@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { PlanLimitService } from '../billing/plan-limit.service';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { createHash } from 'crypto';
@@ -60,6 +61,7 @@ export class ImportService {
     private readonly audit: AuditService,
     private readonly cache: CacheInvalidationService,
     @InjectQueue(QUEUE_NAMES.VENDOR_IMPORT) private readonly queue: Queue,
+    @Optional() private readonly planLimits?: PlanLimitService,
   ) {}
 
   // ── helpers ───────────────────────────────────────────────────────────────
@@ -721,6 +723,15 @@ export class ImportService {
       select: { id: true },
     });
     if (other) throw new ImportError('IMPORT_ALREADY_RUNNING', 'Another import is running for this vendor. Wait for it to finish.', 409);
+
+    // Plan limit: one pre-check for the whole batch (not per row) so the vendor gets one readable error
+    // instead of hundreds of failed rows. Fails open on infra errors (see PlanLimitService).
+    if (this.planLimits && batch.entity === 'CUSTOMERS_OPENING') {
+      const adding = await this.prisma.importRow.count({
+        where: { batchId: id, action: 'CREATE', result: { in: ['PENDING', 'FAILED'] } },
+      });
+      if (adding > 0) await this.planLimits.assertCanCreate(vendorId, 'CUSTOMER', adding);
+    }
 
     // Atomic claim: only one caller can move the batch to QUEUED.
     const claimed = await this.prisma.importBatch.updateMany({

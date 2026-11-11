@@ -9,20 +9,24 @@ import { OverviewTab } from './overview-tab';
 import { UsersTab } from './users-tab';
 import { ReadinessTab } from './readiness-tab';
 import { BrandingTab } from './branding-tab';
+import { VendorSubscriptionCard } from '../../../billing/components/vendor-subscription-card';
+import { ImpersonationSessionsTab } from '../../../impersonation/components/impersonation-sessions-tab';
 import { ActivityTab } from './activity-tab';
 import { EmptyState } from '../../../../components/shared/empty-state';
 import { ErrorState } from '../../../../components/shared/error-state';
 import { PageHeader } from '../../../../components/shared/page-header';
 
-export const VENDOR_TABS = ['overview', 'users', 'readiness', 'branding', 'activity'] as const;
+export const VENDOR_TABS = ['overview', 'users', 'readiness', 'billing', 'branding', 'activity', 'impersonation'] as const;
 export type VendorTab = (typeof VENDOR_TABS)[number];
 
 const LABELS: Record<VendorTab, string> = {
   overview: 'Overview',
   users: 'Users',
   readiness: 'Readiness',
+  billing: 'Billing',
   branding: 'Branding',
   activity: 'Activity',
+  impersonation: 'Impersonation',
 };
 
 export function VendorDetailClient({ id }: { id: string }) {
@@ -89,11 +93,17 @@ export function VendorDetailClient({ id }: { id: string }) {
         <TabsContent value="readiness" className="mt-4">
           <ReadinessTab vendor={vendor} onOpenTab={go} />
         </TabsContent>
+        <TabsContent value="billing" className="mt-4">
+          <VendorSubscriptionCard vendorId={vendor.id} vendorName={vendor.name} />
+        </TabsContent>
         <TabsContent value="branding" className="mt-4">
           <BrandingTab vendor={vendor} />
         </TabsContent>
         <TabsContent value="activity" className="mt-4">
           <ActivityTab vendor={vendor} />
+        </TabsContent>
+        <TabsContent value="impersonation" className="mt-4">
+          <ImpersonationSessionsTab vendorId={vendor.id} />
         </TabsContent>
       </Tabs>
     </div>

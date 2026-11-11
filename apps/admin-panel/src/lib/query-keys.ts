@@ -5,6 +5,12 @@
  * never edits another phase's block.
  */
 export const queryKeys = {
+  announcements: {
+    all: ['announcements'] as const,
+    list: (p: object) => ['announcements', 'list', p] as const,
+    detail: (id: string) => ['announcements', 'detail', id] as const,
+    stats: (id: string) => ['announcements', 'stats', id] as const,
+  },
   audit: {
     all: ['audit'] as const,
     list: (p: object) => ['audit', 'list', p] as const,
@@ -12,6 +18,14 @@ export const queryKeys = {
   },
   auth: {
     me: ['auth', 'me'] as const,
+  },
+  billing: {
+    all: ['billing'] as const,
+    plans: ['billing', 'plans'] as const,
+    subscriptions: (p: object) => ['billing', 'subscriptions', p] as const,
+    vendorSubscription: (vendorId: string) => ['billing', 'vendor-subscription', vendorId] as const,
+    invoices: (p: object) => ['billing', 'invoices', p] as const,
+    invoice: (id: string) => ['billing', 'invoice', id] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,

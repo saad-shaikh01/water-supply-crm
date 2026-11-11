@@ -12,5 +12,6 @@ import { AuthModule } from '../auth/auth.module';
   imports: [AuditModule, PlatformSettingsModule, AuthModule],
   controllers: [VendorController, VendorWipeController],
   providers: [VendorService, VendorProvisioningService, VendorWipeService],
+  exports: [VendorService],
 })
 export class VendorModule {}

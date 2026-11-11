@@ -12,8 +12,8 @@ describe('Sidebar', () => {
     setMockNavigation('/');
     render(<Sidebar />);
     const links = screen.getAllByRole('link').filter((l) => l.textContent !== 'WaterCRM');
-    expect(links.map((l) => l.textContent)).toEqual(['Overview', 'Vendors', 'Audit Logs', 'System Health', 'Imports', 'WhatsApp', 'Platform Admins', 'Security', 'Settings']);
-    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/', '/vendors', '/audit-logs', '/system-health', '/imports', '/whatsapp', '/settings/admins', '/settings/security', '/settings']);
+    expect(links.map((l) => l.textContent)).toEqual(['Overview', 'Vendors', 'Audit Logs', 'System Health', 'Imports', 'WhatsApp', 'Billing', 'Announcements', 'Platform Admins', 'Security', 'Settings']);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/', '/vendors', '/audit-logs', '/system-health', '/imports', '/whatsapp', '/billing', '/announcements', '/settings/admins', '/settings/security', '/settings']);
     expect(screen.queryByText(/products/i)).toBeNull();
   });
 

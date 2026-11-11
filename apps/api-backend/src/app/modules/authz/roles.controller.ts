@@ -14,6 +14,7 @@ import { RoleService } from './role.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { CloneRoleDto } from './dto/clone-role.dto';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 @Controller('roles')
 export class RolesController {
@@ -25,6 +26,7 @@ export class RolesController {
     return this.roleService.list(user);
   }
 
+  @BlockWhenImpersonating()
   @Post()
   @RequirePermissions('roles:create')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateRoleDto) {
@@ -37,24 +39,28 @@ export class RolesController {
     return this.roleService.findOne(user, id);
   }
 
+  @BlockWhenImpersonating()
   @Patch(':id')
   @RequirePermissions('roles:update')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateRoleDto) {
     return this.roleService.update(user, id, dto);
   }
 
+  @BlockWhenImpersonating()
   @Delete(':id')
   @RequirePermissions('roles:delete')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.roleService.remove(user, id);
   }
 
+  @BlockWhenImpersonating()
   @Post(':id/clone')
   @RequirePermissions('roles:clone')
   clone(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CloneRoleDto) {
     return this.roleService.clone(user, id, dto);
   }
 
+  @BlockWhenImpersonating()
   @Post(':id/reset')
   @RequirePermissions('roles:reset')
   reset(@CurrentUser() user: AuthUser, @Param('id') id: string) {

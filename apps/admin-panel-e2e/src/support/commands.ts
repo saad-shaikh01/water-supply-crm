@@ -118,3 +118,30 @@ Cypress.Commands.add('resetPlatformSettings', () => {
     cy.rootToken().then(reset);
   });
 });
+
+/** Authenticated API call as the signed-in super admin (uses the auth_token cookie). */
+Cypress.Commands.add('adminApi', (method: string, path: string, body?: unknown, failOnStatusCode = true) =>
+  cy.getCookie('auth_token').then((c) =>
+    cy.request({
+      method,
+      url: `${Cypress.env('apiUrl')}${path}`,
+      headers: { Authorization: `Bearer ${c?.value}` },
+      body: body as Cypress.RequestBody,
+      failOnStatusCode,
+    }),
+  ),
+);
+
+/** Creates a throwaway vendor (with an active VENDOR_ADMIN) and yields { id, name }. */
+Cypress.Commands.add('createTestVendor', (prefix = 'e2e') => {
+  const n = `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  return cy
+    .adminApi('POST', '/vendors', {
+      name: `Vendor ${n}`,
+      slug: `v-${n}`,
+      adminEmail: `${n}@e2e.test`,
+      adminPassword: 'E2eTest@12345',
+      adminName: `Admin ${n}`,
+    })
+    .then((res) => ({ id: (res.body.vendor?.id ?? res.body.id) as string, name: `Vendor ${n}` }));
+});

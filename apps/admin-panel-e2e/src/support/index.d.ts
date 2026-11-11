@@ -13,6 +13,10 @@ declare namespace Cypress {
     ): Chainable<{ access_token: string; refresh_token: string; user: { id: string; role: string } }>;
     /** Stub GET /dashboard/platform with a fixture (alias @platform). */
     interceptPlatform(fixture: string): Chainable<null>;
+    /** Authenticated API call as the signed-in super admin. */
+    adminApi(method: string, path: string, body?: unknown, failOnStatusCode?: boolean): Chainable<Cypress.Response<any>>;
+    /** Create a throwaway vendor with an active admin; yields { id, name }. */
+    createTestVendor(prefix?: string): Chainable<{ id: string; name: string }>;
     /** Set the three session cookies the panel reads. */
     setSessionCookies(c: { auth: string; refresh: string; role: string }): Chainable<void>;
     /** Authenticated API request that never fails on a non-2xx status. */

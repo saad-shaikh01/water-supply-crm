@@ -11,11 +11,22 @@ import {
 } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
 import { useLogout } from '../../features/auth/hooks/use-auth';
+import { useImpersonation } from '../../features/impersonation/hooks/use-impersonation';
+import { impersonationApi } from '../../features/impersonation/api/impersonation.api';
+import { clearAuthCookies, navigateTo } from '../../features/impersonation/session';
 import { useChangePassword } from '../../features/users/hooks/use-users';
 
 export function UserNav() {
   const user = useAuthStore((s) => s.user);
-  const logout = useLogout();
+  const logoutNormal = useLogout();
+  const { active: impersonating } = useImpersonation();
+  // In a support session "Sign Out" must end the session server-side (exit), not just drop cookies.
+  const logout = async () => {
+    if (!impersonating) return logoutNormal();
+    await impersonationApi.exit().catch(() => null);
+    clearAuthCookies();
+    navigateTo('/auth/impersonate/ended');
+  };
   const { mutate: changePassword, isPending } = useChangePassword();
 
   const [pwOpen, setPwOpen] = useState(false);
@@ -78,6 +89,7 @@ export function UserNav() {
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-border/50" />
           <div className="p-1 space-y-0.5">
+            {!impersonating && (
             <DropdownMenuItem
               onClick={() => setPwOpen(true)}
               className="cursor-pointer rounded-xl px-3 py-2.5 transition-all duration-200"
@@ -85,6 +97,7 @@ export function UserNav() {
               <KeyRound className="mr-3 h-4 w-4" />
               <span className="font-bold text-sm">Change Password</span>
             </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={logout}
               className="cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10 rounded-xl px-3 py-2.5 transition-all duration-200"

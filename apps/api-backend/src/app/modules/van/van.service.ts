@@ -1,7 +1,9 @@
+import { PlanLimitService } from '../billing/plan-limit.service';
 import {
   Injectable,
   NotFoundException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@water-supply-crm/database';
@@ -25,9 +27,11 @@ export class VanService {
   constructor(
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
+    @Optional() private planLimits?: PlanLimitService,
   ) {}
 
   async create(vendorId: string, dto: CreateVanDto) {
+    await this.planLimits?.assertCanCreate(vendorId, 'VAN');
     if (dto.defaultDriverId) {
       await validateDriverAssignment(this.prisma, vendorId, dto.defaultDriverId);
     }
