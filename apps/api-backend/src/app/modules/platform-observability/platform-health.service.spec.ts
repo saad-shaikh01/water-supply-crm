@@ -82,7 +82,7 @@ describe('PlatformHealthService', () => {
         { id: 'repeat:daily-sheet-auto-generation:2', repeatJobKey: 'daily-sheet-auto-generation', processedOn: 5000, finishedOn: 5500, failedReason: 'Bearer abcdef broke' },
       ]),
     });
-    const payQ = makeQueue({ getRepeatableJobs: jest.fn().mockResolvedValue([{ id: 'payment-reminder-daily', name: 'pr', pattern: '0 5 * * *', next: 1_800_000_000_000 }]) });
+    const payQ = makeQueue({ getRepeatableJobs: jest.fn().mockResolvedValue([{ key: 'hash123', name: 'send-payment-reminders', pattern: '0 5 * * *', next: 1_800_000_000_000 }]) });
     queues.set('daily-sheet-generation', sheetQ);
     queues.set('payment-reminders', payQ);
     const h = await svc.getHealth();

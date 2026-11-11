@@ -173,13 +173,12 @@ export class PlatformHealthService implements OnModuleDestroy {
   }
 
   private cronStatus(m: CronMeta, schedulers: any[], repeatables: any[], history: any[]) {
-    const sched = schedulers.find((s) => s?.key === m.jobId || s?.id === m.jobId);
-    const rep = repeatables.find((r) => r?.id === m.jobId || r?.key?.includes?.(m.jobId));
-    const found = sched ?? rep;
+    const byId = (x: any) => x?.key === m.jobId || x?.id === m.jobId;
+    const byLegacyName = (x: any) => !!m.legacyJobName && x?.name === m.legacyJobName;
+    const found = schedulers.find(byId) ?? repeatables.find(byId) ?? schedulers.find(byLegacyName) ?? repeatables.find(byLegacyName);
     const next = found?.next ?? null;
-    const legacyName: string | undefined = rep?.name;
     const mine = history.filter(
-      (j) => j && (j.repeatJobKey === m.jobId || (typeof j.id === 'string' && j.id.startsWith(`repeat:${m.jobId}:`)) || (!sched && legacyName && j.name === legacyName)),
+      (j) => j && (j.repeatJobKey === m.jobId || (found?.key && j.repeatJobKey === found.key) || (typeof j.id === 'string' && j.id.startsWith('repeat:' + m.jobId + ':')) || (!found && byLegacyName(j))),
     );
     let last: any = null;
     for (const j of mine) if (j.finishedOn && (!last || j.finishedOn > last.finishedOn)) last = j;

@@ -6,6 +6,8 @@ export interface CronMeta {
   label: string;
   pattern: string;
   tz: string;
+  /** Legacy `repeat` jobs carry no scheduler id; match them by job name instead. */
+  legacyJobName?: string;
 }
 
 /** Static metadata mirroring the BullMQ schedulers registered at boot (see each service's onModuleInit). */
@@ -18,5 +20,5 @@ export const CRON_REGISTRY: CronMeta[] = [
   { jobId: 'tracking-breadcrumb-cleanup', queue: QUEUE_NAMES.TRACKING_HISTORY, label: 'Tracking breadcrumb cleanup', pattern: '0 2 * * *', tz: 'Asia/Karachi' },
   { jobId: 'whatsapp-account-health', queue: QUEUE_NAMES.WHATSAPP_HEALTH, label: 'WhatsApp account health check', pattern: '10 3 * * *', tz: 'Asia/Karachi' },
   // Legacy `repeat` API: shows up in getRepeatableJobs(), not getJobSchedulers().
-  { jobId: 'payment-reminder-daily', queue: QUEUE_NAMES.PAYMENT_REMINDERS, label: 'Payment reminders (daily)', pattern: '0 5 * * *', tz: 'UTC' },
+  { jobId: 'payment-reminder-daily', queue: QUEUE_NAMES.PAYMENT_REMINDERS, label: 'Payment reminders (daily)', pattern: '0 5 * * *', tz: 'UTC', legacyJobName: 'send-payment-reminders' },
 ];
