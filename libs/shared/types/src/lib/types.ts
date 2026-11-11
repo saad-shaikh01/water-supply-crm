@@ -20,5 +20,7 @@ export interface AuthUser {
     actorId: string;
     actorName: string;
     mode: 'READ_ONLY' | 'SUPPORT';
+    /** ISO expiry of the impersonation token (drives the banner countdown). */
+    expiresAt?: string;
   };
 }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { AuditLogQueryDto } from './dto/audit-log-query.dto';
+import { impersonationContext } from '../impersonation/impersonation.context';
 import { paginate } from '../../common/helpers/paginate';
 
 export interface AuditLogData {
@@ -15,7 +16,7 @@ export interface AuditLogData {
    * voids / adjustments; the history view reads it from here first, falling back
    * to legacy `after.voidReason` / `adjustmentReason` / `correctionReason`.
    */
-  changes?: { before?: any; after?: any; reason?: string };
+  changes?: { before?: any; after?: any; reason?: string; impersonatedBy?: any };
 }
 
 @Injectable()
@@ -26,6 +27,17 @@ export class AuditService {
 
   async log(data: AuditLogData): Promise<void> {
     try {
+      // During an impersonated request, stamp every audit row with who is really acting.
+      const imp = impersonationContext.getStore();
+      if (imp) {
+        data = {
+          ...data,
+          changes: {
+            ...(data.changes ?? {}),
+            impersonatedBy: { actorId: imp.actorId, actorName: imp.actorName, sessionId: imp.sessionId },
+          },
+        };
+      }
       await this.prisma.auditLog.create({ data });
     } catch (err) {
       this.logger.error('Failed to write audit log', err);

@@ -57,6 +57,9 @@ import { VendorImportModule } from './modules/vendor-import/vendor-import.module
 import { VendorBrandingModule } from './modules/vendor-branding/vendor-branding.module';
 import { VendorReadinessModule } from './modules/vendor-readiness/vendor-readiness.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { ImpersonationModule } from './modules/impersonation/impersonation.module';
+import { ImpersonationGuard } from './modules/impersonation/impersonation.guard';
+import { ImpersonationAuditInterceptor } from './modules/impersonation/impersonation-audit.interceptor';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -115,6 +118,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     VendorBrandingModule,
     VendorReadinessModule,
     BillingModule,
+    ImpersonationModule,
   ],
   controllers: [AppController],
   providers: [
@@ -128,6 +132,9 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     //   2. PermissionsGuard — deny-by-default; enforces the route's authorization marker
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    //   3. ImpersonationGuard — read-only / blocklist enforcement for support (impersonation) tokens
+    { provide: APP_GUARD, useClass: ImpersonationGuard },
+    { provide: APP_INTERCEPTOR, useClass: ImpersonationAuditInterceptor },
   ],
 })
 export class AppModule implements NestModule {

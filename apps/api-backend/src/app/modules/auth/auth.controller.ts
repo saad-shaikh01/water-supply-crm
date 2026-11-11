@@ -55,6 +55,7 @@ export class AuthController {
     ]);
     return {
       ...profile,
+      ...(user.impersonation && { impersonation: user.impersonation }),
       permissions,
       pagePermissions: permissions.filter((p) => p.endsWith(':page')),
     };
