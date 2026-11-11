@@ -5,6 +5,8 @@ const NAV = [
   { label: 'System Health', path: '/system-health' },
   { label: 'Imports', path: '/imports' },
   { label: 'WhatsApp', path: '/whatsapp' },
+  { label: 'Platform Admins', path: '/settings/admins' },
+  { label: 'Security', path: '/settings/security' },
   { label: 'Settings', path: '/settings' },
 ];
 
@@ -32,10 +34,10 @@ describe('navigation', () => {
     cy.request({ url: '/products', failOnStatusCode: false }).its('status').should('eq', 404);
   });
 
-  it('C17 settings is a placeholder empty state', () => {
+  it('C17 settings page is live (Phase 5)', () => {
     cy.visit('/settings');
     cy.get('h1').should('contain.text', 'Settings');
-    cy.contains(/coming soon/i).should('be.visible');
+    cy.contains('Maintenance mode').should('be.visible');
   });
 
   it('C18 query params on /vendors are kept (nuqs) and drive the API request', () => {

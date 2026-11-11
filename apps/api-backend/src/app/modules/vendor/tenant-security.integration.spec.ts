@@ -8,6 +8,7 @@ import { VendorService } from './vendor.service';
 import { VendorProvisioningService } from './vendor-provisioning.service';
 import { UserService } from '../user/user.service';
 import { AuthService } from '../auth/auth.service';
+import { authExtraDeps } from '../auth/testing/auth-deps';
 import { JwtStrategy } from '../auth/jwt.strategy';
 import { PermissionService } from '../authz/permission.service';
 import { CustomerService } from '../customer/customer.service';
@@ -45,7 +46,7 @@ describeDb('Tenant security (real Postgres): vendors A and B', () => {
   const provisioning = new VendorProvisioningService(prisma, permissionService, audit as never);
   const vendors = new VendorService(prisma, cache as never, audit as never, provisioning);
   const users = new UserService(prisma, cache as never, audit as never, permissionService, policy as never);
-  const auth = new AuthService(users, {} as never, {} as never, cache as never);
+  const auth = new AuthService(users, {} as never, {} as never, cache as never, ...(authExtraDeps() as [never, never, never, never]));
   const damage = new DamageCaseService(
     prisma,
     {} as never,

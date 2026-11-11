@@ -471,7 +471,7 @@ export class UserService {
   async updatePassword(userId: string, hashedPassword: string) {
     return this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashedPassword },
+      data: { password: hashedPassword, mustChangePassword: false },
     });
   }
 
@@ -484,7 +484,7 @@ export class UserService {
     if (!valid) throw new BadRequestException('Current password is incorrect');
 
     const hashed = await bcrypt.hash(newPassword, 10);
-    await this.prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+    await this.prisma.user.update({ where: { id: userId }, data: { password: hashed, mustChangePassword: false } });
     return { message: 'Password changed successfully' };
   }
 }

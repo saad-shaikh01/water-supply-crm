@@ -10,7 +10,7 @@
  * (enforced by config/nav.spec.ts).
  */
 import type { LucideIcon } from 'lucide-react';
-import { Activity, Building2, FileUp, LayoutDashboard, MessageCircle, ScrollText, Settings } from 'lucide-react';
+import { Activity, Building2, FileUp, LayoutDashboard, MessageCircle, ScrollText, Settings, ShieldCheck, UserCog } from 'lucide-react';
 
 export interface NavItem {
   id: string;
@@ -28,7 +28,10 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'system-health', label: 'System Health', href: '/system-health', icon: Activity, order: 40 },
   { id: 'imports', label: 'Imports', href: '/imports', icon: FileUp, order: 45 },
   { id: 'whatsapp', label: 'WhatsApp', href: '/whatsapp', icon: MessageCircle, order: 50 },
-  { id: 'settings', label: 'Settings', href: '/settings', icon: Settings, order: 100 },
+  { id: 'platform-admins', label: 'Platform Admins', href: '/settings/admins', icon: UserCog, order: 80 },
+  { id: 'security', label: 'Security', href: '/settings/security', icon: ShieldCheck, order: 90 },
+  // exact: /settings/admins and /settings/security have their own entries above
+  { id: 'settings', label: 'Settings', href: '/settings', icon: Settings, order: 100, match: 'exact' },
 ];
 
 export function sortedNavItems(items: NavItem[] = NAV_ITEMS): NavItem[] {

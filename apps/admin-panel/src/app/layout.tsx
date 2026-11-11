@@ -5,6 +5,9 @@ import { ThemeProvider } from '../components/layout/theme-provider';
 import { SessionListener } from '../components/layout/session-listener';
 import './global.css';
 
+// The CSP nonce (src/middleware.ts) is per request, so pages must render dynamically for Next to stamp it on its scripts.
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'WaterCRM — Admin Panel',
   description: 'Platform administration for Water Supply CRM',

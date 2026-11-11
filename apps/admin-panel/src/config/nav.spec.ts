@@ -21,7 +21,26 @@ describe('nav registry', () => {
   it('uses the reserved orders for overview, vendors, settings', () => {
     const byId = Object.fromEntries(NAV_ITEMS.map((n) => [n.id, n.order]));
     expect(byId).toMatchObject({ overview: 10, vendors: 20, settings: 100 });
-    expect(sortedNavItems().map((n) => n.id)).toEqual(['overview', 'vendors', 'audit-logs', 'system-health', 'imports', 'whatsapp', 'settings']);
+    expect(byId).toMatchObject({ 'platform-admins': 80, security: 90 });
+    expect(sortedNavItems().map((n) => n.id)).toEqual([
+      'overview',
+      'vendors',
+      'audit-logs',
+      'system-health',
+      'imports',
+      'whatsapp',
+      'platform-admins',
+      'security',
+      'settings',
+    ]);
+  });
+
+  it('Settings is exact-match so the nested admins/security pages do not double-highlight', () => {
+    const settings = NAV_ITEMS.find((n) => n.id === 'settings')!;
+    expect(isNavActive(settings, '/settings')).toBe(true);
+    expect(isNavActive(settings, '/settings/admins')).toBe(false);
+    const admins = NAV_ITEMS.find((n) => n.id === 'platform-admins')!;
+    expect(isNavActive(admins, '/settings/admins')).toBe(true);
   });
 
   it('root is exact-match, others prefix-match', () => {

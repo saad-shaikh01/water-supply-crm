@@ -20,3 +20,27 @@ export const resetPasswordSchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+export const totpCodeSchema = z.object({
+  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+});
+
+/** Recovery codes look like XXXXX-XXXXX (dash and case are ignored by the server). */
+export const recoveryCodeSchema = z.object({
+  recoveryCode: z
+    .string()
+    .transform((v) => v.trim())
+    .refine((v) => v.replace(/-/g, '').length === 10, 'Enter the 10-character recovery code'),
+});
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z.string().min(12, 'New password must be at least 12 characters'),
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, { message: "Passwords don't match", path: ['confirmPassword'] });
+
+export type TotpCodeInput = z.infer<typeof totpCodeSchema>;
+export type RecoveryCodeInput = z.infer<typeof recoveryCodeSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

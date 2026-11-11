@@ -2,6 +2,8 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { AuthSessionService } from './session/auth-session.service';
+import { authExtraDeps } from './testing/auth-deps';
 
 /** AuthService.revokeUserSessions: tokens issued before the revocation are void, later ones work. */
 function memoryCache() {
@@ -22,18 +24,20 @@ describe('session revocation (admin password reset)', () => {
   beforeEach(() => {
     process.env['JWT_SECRET'] = process.env['JWT_SECRET'] ?? 'test-secret-test-secret-test-secret-123';
     cache = memoryCache();
-    auth = new AuthService({ findById: jest.fn(async () => user) } as never, new JwtService({ secret: 'x' }), {} as never, cache as never);
+    const prisma = { authSession: { findMany: jest.fn(async () => []), updateMany: jest.fn(async () => ({ count: 0 })) } };
+    const sessions = new AuthSessionService(prisma as never, cache as never);
+    auth = new AuthService({ findById: jest.fn(async () => user) } as never, new JwtService({ secret: 'x' }), {} as never, cache as never, ...(authExtraDeps({ sessions }) as [never, never, never, never]));
     strategy = new JwtStrategy(cache as never);
   });
   afterEach(() => jest.useRealTimers());
 
   it('refresh token issued before the reset is rejected, one issued after works', async () => {
-    const before = await auth.login(user);
+    const before: any = await auth.login(user);
     await new Promise((r) => setTimeout(r, 5));
     await auth.revokeUserSessions('u1');
     await new Promise((r) => setTimeout(r, 5));
     await expect(auth.refreshTokens(before.refresh_token)).rejects.toBeInstanceOf(UnauthorizedException);
-    const after = await auth.login(user);
+    const after: any = await auth.login(user);
     await expect(auth.refreshTokens(after.refresh_token)).resolves.toHaveProperty('access_token');
   });
 

@@ -1,3 +1,4 @@
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import {
   Injectable,
   Logger,
@@ -5,6 +6,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
@@ -36,6 +38,7 @@ export class VendorService implements OnModuleInit {
     private cache: CacheInvalidationService,
     private audit: AuditService,
     private provisioning: VendorProvisioningService,
+    @Optional() private platformSettings?: PlatformSettingsService,
     private auth?: AuthService,
   ) {}
 
@@ -79,12 +82,14 @@ export class VendorService implements OnModuleInit {
     }
 
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    // Platform default (defaults.customerGroupingEnabled) applies to NEW vendors only.
+    const groupingDefault = (await this.platformSettings?.get<boolean>('defaults.customerGroupingEnabled')) === true;
 
     let created;
     try {
       created = await this.prisma.$transaction(
         async (tx) => {
-          const vendor = await tx.vendor.create({ data: vendorData });
+          const vendor = await tx.vendor.create({ data: { ...vendorData, customerGroupingEnabled: groupingDefault } });
           const provisioned = await this.provisioning.provisionInTx(tx, vendor.id);
           const admin = await tx.user.create({
             data: {

@@ -4,6 +4,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 import compression from 'compression';
+import helmet from 'helmet';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
@@ -16,6 +17,17 @@ async function bootstrap() {
   // (short: 10 req/s) ends up shared across ALL users instead of per-client.
   app.set('trust proxy', 1);
   app.use(compression());
+  // JSON API: CSP is pointless here (and would break /uploads previews), the rest stays on.
+  // crossOriginResourcePolicy cross-origin so the separate frontends can load /uploads images.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      hsts: { maxAge: 15552000, includeSubDomains: true },
+      referrerPolicy: { policy: 'no-referrer' },
+      frameguard: { action: 'deny' },
+    }),
+  );
   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
   app.enableCors({
     origin: allowedOrigins?.length ? allowedOrigins : false,

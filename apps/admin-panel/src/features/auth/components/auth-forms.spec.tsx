@@ -9,6 +9,7 @@ import { authApi } from '../api/auth.api';
 jest.mock('next/navigation', () => navigationMockFactory());
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }));
 jest.mock('../api/auth.api', () => ({
+  ...jest.requireActual('../api/auth.api'),
   authApi: { login: jest.fn(), logout: jest.fn(), me: jest.fn(), forgotPassword: jest.fn(), resetPassword: jest.fn() },
 }));
 

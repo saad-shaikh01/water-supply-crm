@@ -29,6 +29,11 @@ export class CacheInvalidationService {
     await this.cacheManager.del(key);
   }
 
+  /** Public wrapper (used by admin unlock to clear ip-suffixed login lock keys). */
+  async deleteByPattern(pattern: string): Promise<void> {
+    await this.delByPattern(pattern);
+  }
+
   private async delByPattern(pattern: string): Promise<void> {
     try {
       const client = (this.cacheManager as any).store?.client;

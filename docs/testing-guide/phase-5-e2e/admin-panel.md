@@ -13,23 +13,23 @@
 
 **Action:** Read the existing support file path first (check `apps/admin-panel-e2e/`), then add:
 
-```typescript
-Cypress.Commands.add('loginAsAdmin', (email: string, password: string) => {
-  cy.request('POST', `${Cypress.env('apiUrl')}/api/auth/login`, { email, password })
-    .then((response) => {
-      window.localStorage.setItem('accessToken', response.body.accessToken);
-    });
-  cy.visit('/dashboard');
-});
-```
+> **Corrected (Phase 5):** the API login is `POST /api/auth/login` with `{ identifier, password }` and answers
+> `{ access_token, refresh_token, expires_in, user }` (snake_case). The panel reads the `auth_token`, `refresh_token`
+> and `user_role` **cookies**, not localStorage. The real helpers already exist in
+> `apps/admin-panel-e2e/src/support/commands.ts` (`cy.apiLogin`, `cy.loginAsSuperAdmin`, `cy.loginViaUi`,
+> `cy.createAdminAccount`, `cy.rootToken`, `cy.apiAs`) and `cypress.config.ts` (tasks `resetThrottle`, `totp`, `totpAhead`).
+> Ports are not fixed to 3000/4200: pass them through the environment, e.g. for the Phase 5 stack
+> `CYPRESS_BASE_URL=http://127.0.0.1:4105 CYPRESS_API_URL=http://localhost:3105/api CYPRESS_ADMIN_EMAIL=... CYPRESS_ADMIN_PASSWORD=...
+> CYPRESS_VENDOR_ADMIN_EMAIL=... CYPRESS_VENDOR_ADMIN_PASSWORD=... CYPRESS_REDIS_CONTAINER=wscrm-redis-p5` (unset `ELECTRON_RUN_AS_NODE` first).
 
-Add to `cypress.config.ts`:
 ```typescript
-env: {
-  apiUrl: 'http://localhost:3000',
-  adminEmail: 'superadmin@watercrm.test',
-  adminPassword: 'AdminPassword123!',
-},
+Cypress.Commands.add('loginAsSuperAdmin', () => {
+  cy.session('super-admin', () => {
+    cy.apiLogin(Cypress.env('adminEmail'), Cypress.env('adminPassword')).then((b) =>
+      cy.setSessionCookies({ auth: b.access_token, refresh: b.refresh_token, role: b.user.role }),
+    );
+  });
+});
 ```
 
 ---

@@ -54,6 +54,9 @@ module.exports = {
         JWT_SECRET: process.env.JWT_SECRET,
         REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET,
         ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
+        // Admin hardening: 2FA secret encryption key (required in production) + admin base URL for reset emails
+        ADMIN_2FA_ENC_KEY: process.env.ADMIN_2FA_ENC_KEY,
+        ADMIN_FRONTEND_URL: process.env.ADMIN_FRONTEND_URL,
         // Wasabi S3-compatible storage
         WASABI_ACCESS_KEY_ID: process.env.WASABI_ACCESS_KEY_ID,
         WASABI_SECRET_ACCESS_KEY: process.env.WASABI_SECRET_ACCESS_KEY,

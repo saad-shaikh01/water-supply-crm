@@ -675,6 +675,14 @@ model User {
   customerDepositEntriesCreated CustomerDepositEntry[] @relation("CustomerDepositEntryCreatedBy")
   customerDepositEntriesVoided  CustomerDepositEntry[] @relation("CustomerDepositEntryVoidedBy")
 
+  // Phase 5 (admin hardening)
+  lastLoginAt          DateTime?
+  mustChangePassword   Boolean            @default(false)
+  twoFactor            UserTwoFactor?     @relation("UserTwoFactor")
+  recoveryCodes        UserRecoveryCode[] @relation("UserRecoveryCodes")
+  authSessions         AuthSession[]      @relation("UserAuthSessions")
+  platformSettingEdits PlatformSetting[]  @relation("PlatformSettingUpdatedBy")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -4896,4 +4904,65 @@ model ImportMappingProfile {
   @@unique([vendorId, entity, name])
   @@index([vendorId, entity, fingerprint])
   @@index([isSystem, entity, fingerprint])
+}
+
+// ── Phase 5: platform settings ──────────────────────────────────────────────
+model PlatformSetting {
+  key         String   @id // e.g. "maintenance.enabled"
+  value       Json // validated against the in-code registry on write
+  updatedById String?
+  updatedBy   User?    @relation("PlatformSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+// ── Phase 5: TOTP 2FA (SUPER_ADMIN only for now; model is role-agnostic) ────
+model UserTwoFactor {
+  id           String    @id @default(uuid())
+  userId       String    @unique
+  user         User      @relation("UserTwoFactor", fields: [userId], references: [id], onDelete: Cascade)
+  // "v1:<iv b64>:<tag b64>:<ciphertext b64>" AES-256-GCM, key from ADMIN_2FA_ENC_KEY
+  secretEnc    String
+  // null until the first valid code is confirmed (pending enrollment)
+  enabledAt    DateTime?
+  // last accepted TOTP time-step; reject <= this value (replay protection)
+  lastUsedStep Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("user_two_factor")
+}
+
+model UserRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation("UserRecoveryCodes", fields: [userId], references: [id], onDelete: Cascade)
+  // HMAC-SHA256(code, ADMIN_2FA_ENC_KEY) hex
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, codeHash])
+  @@index([userId, usedAt])
+  @@map("user_recovery_codes")
+}
+
+// ── Phase 5: session tracking (SUPER_ADMIN sessions only) ───────────────────
+model AuthSession {
+  id           String    @id @default(uuid()) // embedded as `sid` claim in the access JWT
+  userId       String
+  user         User      @relation("UserAuthSessions", fields: [userId], references: [id], onDelete: Cascade)
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+  expiresAt    DateTime // = refresh TTL (7d), slid on refresh
+  revokedAt    DateTime?
+  revokedById  String?
+  revokeReason String? // "USER_REVOKE" | "ADMIN_REVOKE" | "PASSWORD_RESET" | "DEACTIVATED" | "2FA_RESET"
+
+  @@index([userId, revokedAt, expiresAt])
+  @@map("auth_sessions")
 }

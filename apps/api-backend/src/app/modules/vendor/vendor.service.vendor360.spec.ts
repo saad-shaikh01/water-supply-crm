@@ -34,7 +34,7 @@ function build(over: { prisma?: any } = {}) {
   const audit = { log: jest.fn(async () => undefined) };
   const auth = { revokeUserSessions: jest.fn(async () => undefined) };
   const provisioning = {};
-  const svc = new VendorService(prisma, cache as never, audit as never, provisioning as never, auth as never);
+  const svc = new VendorService(prisma, cache as never, audit as never, provisioning as never, undefined, auth as never);
   return { svc, prisma, cache, audit, auth };
 }
 
