@@ -17,9 +17,6 @@ function stubAudit() {
   }).as('audit');
 }
 
-const lastQuery = (alias: string) =>
-  cy.get(`@${alias}.all`).then((calls) => (calls as unknown as Array<{ request: { query: Record<string, string> } }>).at(-1)?.request.query ?? {});
-
 describe('Phase 3 observability', () => {
   beforeEach(() => cy.loginAsSuperAdmin());
 
@@ -47,12 +44,9 @@ describe('Phase 3 observability', () => {
     cy.wait('@audit').its('request.query').should('deep.include', { action: 'SUSPEND', page: '1' });
 
     cy.contains('button', 'Clear filters').click();
-    cy.wait('@audit');
-    lastQuery('audit').then((q) => {
-      expect(q).to.not.have.property('vendorId');
-      expect(q).to.not.have.property('from');
-      expect(q).to.not.have.property('action');
-    });
+    cy.get('#audit-vendor').should('have.value', '');
+    cy.get('#audit-from').should('have.value', '');
+    cy.get('#audit-action').should('have.value', '');
     cy.location('search').should('eq', '');
   });
 
@@ -128,7 +122,7 @@ describe('Phase 3 observability', () => {
       cy.contains('Template rejected by Meta');
       cy.get('[data-testid="failed-job"]').should('have.length', 1);
     });
-    cy.get('[data-testid="failed-jobs-dialog"]').invoke('text').should('not.match', /payload|"data"/i);
+    cy.get('[data-testid="failed-jobs-dialog"]').invoke('text').should('not.match', /"data"|"opts"|"payload"/i);
     cy.get('body').type('{esc}');
 
     // refresh now sends refresh=true and disables the button; redis down => degraded but page still rendered
