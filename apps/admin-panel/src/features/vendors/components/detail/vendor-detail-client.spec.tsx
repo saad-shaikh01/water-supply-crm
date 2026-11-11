@@ -63,7 +63,7 @@ describe('VendorDetailClient', () => {
     expect(screen.getByText('aqua-one')).toBeTruthy();
     expect(screen.getByText('Active')).toBeTruthy();
     expect(screen.getByText('Setup')).toBeTruthy();
-    ['Overview', 'Users', 'Readiness', 'Branding', 'Activity'].forEach((t) => expect(screen.getByRole('tab', { name: t })).toBeTruthy());
+    ['Overview', 'Users', 'Readiness', 'Billing', 'Branding', 'Activity', 'Impersonation'].forEach((t) => expect(screen.getByRole('tab', { name: t })).toBeTruthy());
   });
 
   it('?tab=users deep link opens the Users tab', async () => {
