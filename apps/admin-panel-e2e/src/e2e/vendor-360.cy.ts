@@ -39,7 +39,7 @@ const vendorLogin = (email: string, password: string) => {
   return cy.request({ method: 'POST', url: `${apiUrl()}/auth/login`, body: { identifier: email, password }, failOnStatusCode: false });
 };
 
-const authed = (token: string, method: string, path: string, body?: unknown) =>
+const authed = (token: string, method: string, path: string, body?: Record<string, unknown>) =>
   cy.request({ method, url: `${apiUrl()}${path}`, headers: { Authorization: `Bearer ${token}` }, body, failOnStatusCode: false });
 
 describe('Vendor 360', () => {
