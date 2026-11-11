@@ -7,6 +7,7 @@ import { ConnectWhatsAppAccountDto, LinkWhatsAppAccountDto, UpdateWhatsAppSettin
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { RequireSuperAdmin } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -43,6 +44,7 @@ export class WhatsAppController {
     return this.accounts.getView(user.vendorId);
   }
 
+  @BlockWhenImpersonating()
   @Put('account')
   @RequirePermissions('whatsapp:manage')
   @Throttle({ short: { ttl: 2000, limit: 2 }, medium: { ttl: 60000, limit: 10 } })
@@ -57,6 +59,7 @@ export class WhatsAppController {
     return this.accounts.verifyVendor(user.vendorId, user);
   }
 
+  @BlockWhenImpersonating()
   @Delete('account')
   @RequirePermissions('whatsapp:manage')
   disconnect(@CurrentUser() user: AuthUser) {
@@ -95,6 +98,7 @@ export class VendorWhatsAppAdminController {
     return this.accounts.getView(vendorId, { isSuperAdmin: true });
   }
 
+  @BlockWhenImpersonating()
   @Put()
   @Throttle({ short: { ttl: 2000, limit: 2 }, medium: { ttl: 60000, limit: 10 } })
   connect(@CurrentUser() user: AuthUser, @Param('vendorId') vendorId: string, @Body() dto: ConnectWhatsAppAccountDto) {
@@ -107,6 +111,7 @@ export class VendorWhatsAppAdminController {
     return this.accounts.verifyVendor(vendorId, user, { isSuperAdmin: true });
   }
 
+  @BlockWhenImpersonating()
   @Delete()
   disconnect(@CurrentUser() user: AuthUser, @Param('vendorId') vendorId: string) {
     return this.accounts.disconnect(vendorId, user, { isSuperAdmin: true });
@@ -129,12 +134,14 @@ export class VendorWhatsAppAdminController {
   }
 
   /** Share an existing sender with this vendor (same owner, e.g. sister brands). */
+  @BlockWhenImpersonating()
   @Post('link')
   link(@CurrentUser() user: AuthUser, @Param('vendorId') vendorId: string, @Body() dto: LinkWhatsAppAccountDto) {
     return this.accounts.linkVendor(vendorId, dto.accountId, user);
   }
 
   /** Adopt the platform env credentials as this vendor's own stored account (Blue Ice migration). */
+  @BlockWhenImpersonating()
   @Post('import-platform')
   importPlatform(@CurrentUser() user: AuthUser, @Param('vendorId') vendorId: string) {
     return this.accounts.importPlatformCredentials(vendorId, user);

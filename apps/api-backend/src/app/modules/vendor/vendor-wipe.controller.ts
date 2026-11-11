@@ -3,12 +3,14 @@ import { Throttle } from '@nestjs/throttler';
 import type { AuthUser } from '@water-supply-crm/types';
 import { RequireSuperAdmin } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 import { VendorWipeService } from './vendor-wipe.service';
 import { WipeVendorDto } from './dto/wipe-vendor.dto';
 
 // Platform surface, super admin only. See docs/features/vendor-data-wipe.md.
 @Controller('vendors')
 @RequireSuperAdmin()
+@BlockWhenImpersonating()
 export class VendorWipeController {
   constructor(private readonly wipeService: VendorWipeService) {}
 

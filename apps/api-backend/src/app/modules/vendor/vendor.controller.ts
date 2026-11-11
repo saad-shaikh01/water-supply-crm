@@ -19,6 +19,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { RequireSuperAdmin, RequireRoles } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 // Domain B — platform surface. Super-admin only by default (outside the vendor catalog).
 @Controller('vendors')
@@ -96,6 +97,7 @@ export class VendorController {
   }
 
   /** POST /vendors/:id/reset-admin-password — Force-reset vendor admin password */
+  @BlockWhenImpersonating()
   @Post(':id/reset-admin-password')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   resetAdminPassword(
@@ -106,6 +108,7 @@ export class VendorController {
   }
 
   /** DELETE /vendors/:id — Permanent delete (blocked if transactions exist) */
+  @BlockWhenImpersonating()
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.vendorService.remove(id);
