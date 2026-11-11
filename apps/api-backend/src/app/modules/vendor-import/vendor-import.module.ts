@@ -9,8 +9,10 @@ import { ImportExecutorService } from './import-executor.service';
 import { ImportProcessor } from './import.processor';
 
 /** Vendor Data Import (onboarding) — design doc: docs/features/vendor-data-import-design.md */
+import { PlanLimitModule } from '../billing/plan-limit.module';
+
 @Module({
-  imports: [AuditModule, StorageModule, BullModule.registerQueue({ name: QUEUE_NAMES.VENDOR_IMPORT })],
+  imports: [PlanLimitModule, AuditModule, StorageModule, BullModule.registerQueue({ name: QUEUE_NAMES.VENDOR_IMPORT })],
   controllers: [ImportController],
   providers: [ImportService, ImportExecutorService, ImportProcessor],
 })

@@ -1,9 +1,11 @@
+import { PlanLimitService } from '../billing/plan-limit.service';
 import {
   Injectable,
   BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -52,6 +54,8 @@ export class CustomerService {
     @InjectQueue(QUEUE_NAMES.BULK_PRICE_UPDATE)
     private bulkPriceQueue: Queue,
     private vendorBranding: VendorBrandingService,
+    // @Optional only so unit-test modules that don't register billing stay constructible.
+    @Optional() private planLimits?: PlanLimitService,
   ) {}
 
   /** Follow a Google Maps short URL and extract lat/lng from the resolved full URL */
@@ -152,6 +156,7 @@ export class CustomerService {
   }
 
   async create(vendorId: string, dto: CreateCustomerDto) {
+    await this.planLimits?.assertCanCreate(vendorId, 'CUSTOMER');
     // If customerCode provided manually, check uniqueness (codes are unique per vendor)
     if (dto.customerCode) {
       const existing = await this.prisma.customer.findUnique({

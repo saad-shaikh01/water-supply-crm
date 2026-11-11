@@ -10,5 +10,6 @@ import { AuditModule } from '../audit/audit.module';
   imports: [AuditModule],
   controllers: [VendorController, VendorWipeController],
   providers: [VendorService, VendorProvisioningService, VendorWipeService],
+  exports: [VendorService],
 })
 export class VendorModule {}
