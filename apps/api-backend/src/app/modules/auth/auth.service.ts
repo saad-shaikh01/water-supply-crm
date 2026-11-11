@@ -14,6 +14,7 @@ import { getJwtSecret } from './jwt-secret';
 import { AuthSessionService } from './session/auth-session.service';
 import { TwoFactorService, INVALID_2FA } from './two-factor/two-factor.service';
 import { AuthSecurityPolicyService } from './security-policy.service';
+import { loginUnlockedKey } from './login-lock';
 
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 const REFRESH_KEY = (token: string) => `auth:refresh:${token}`;
@@ -61,16 +62,24 @@ export class AuthService {
     return (identifier ?? '').trim().toLowerCase();
   }
 
-  private async lockedFor(keys: string[]): Promise<boolean> {
-    for (const k of keys) if (await this.cache.get(k)) return true;
-    return false;
+  /**
+   * Is sign-in blocked? The identifier lock stores the epoch-ms it was set at and is ignored when an admin unlocked
+   * the account after that (see login-lock.ts); the per-IP lock is independent of any single account.
+   */
+  private async lockedFor(lockKey: string, unlockedKey: string, ipLockKey: string | null): Promise<boolean> {
+    const lock = await this.cache.get<number | boolean>(lockKey);
+    if (lock) {
+      const unlockedAt = (await this.cache.get<number>(unlockedKey)) ?? 0;
+      if (typeof lock !== 'number' || lock > unlockedAt) return true;
+    }
+    return !!ipLockKey && !!(await this.cache.get(ipLockKey));
   }
 
   /** Increments a failure counter; returns true when this failure tripped the lock. */
   private async registerFailure(failKey: string, lockKey: string, max: number, lockMs: number): Promise<boolean> {
     const fails = ((await this.cache.get<number>(failKey)) ?? 0) + 1;
     if (fails >= max) {
-      await this.cache.set(lockKey, true, lockMs);
+      await this.cache.set(lockKey, Date.now(), lockMs);
       await this.cache.del(failKey);
       return true;
     }
@@ -90,7 +99,7 @@ export class AuthService {
     const { loginMaxAttempts, loginLockMinutes } = await this.policy.get();
     const lockMs = loginLockMinutes * 60 * 1000;
 
-    if (await this.lockedFor(ipLockKey ? [lockKey, ipLockKey] : [lockKey])) {
+    if (await this.lockedFor(lockKey, loginUnlockedKey(id), ipLockKey)) {
       throw new UnauthorizedException(GENERIC_LOGIN_ERROR);
     }
 

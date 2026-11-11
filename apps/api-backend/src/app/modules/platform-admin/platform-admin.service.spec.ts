@@ -179,6 +179,7 @@ describe('PlatformAdminService', () => {
   it('unlock clears identifier + ip-suffixed lock keys and audits', async () => {
     const { svc, cache, audit } = setup();
     await svc.unlock('t1', actor);
+    expect(cache.set).toHaveBeenCalledWith('auth:unlocked:t@x.test', expect.any(Number), expect.any(Number));
     expect(cache.del).toHaveBeenCalledWith('auth:lock:t@x.test');
     expect(cache.deleteByPattern).toHaveBeenCalledWith('auth:lock:t@x.test|*');
     expect(cache.deleteByPattern).toHaveBeenCalledWith('auth:fail:t@x.test|*');

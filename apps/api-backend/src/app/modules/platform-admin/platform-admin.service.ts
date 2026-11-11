@@ -18,6 +18,7 @@ import { TwoFactorService } from '../auth/two-factor/two-factor.service';
 import { PermissionService } from '../authz/permission.service';
 import { assertCanAssignRole, userInactiveKey, USER_INACTIVE_FLAG_TTL_MS } from '../user/user.service';
 import { paginate } from '../../common/helpers/paginate';
+import { loginUnlockedKey, LOGIN_UNLOCKED_TTL_MS } from '../auth/login-lock';
 import { CreatePlatformAdminDto, PlatformAdminQueryDto } from './dto/platform-admin.dto';
 
 const MAX_SERIALIZABLE_RETRIES = 3;
@@ -273,6 +274,8 @@ export class PlatformAdminService {
     await this.cache.del(`auth:lock:2fa:${id}`);
     await this.cache.del(`auth:fail:2fa:${id}`);
     for (const ident of identifiers) {
+      // authoritative: the ip-suffixed lock keys cannot be enumerated (and pattern deletes need a Redis client)
+      await this.cache.set(loginUnlockedKey(ident), Date.now(), LOGIN_UNLOCKED_TTL_MS);
       await this.cache.del(`auth:lock:${ident}`);
       await this.cache.del(`auth:fail:${ident}`);
       await this.cache.deleteByPattern(`auth:lock:${ident}|*`);

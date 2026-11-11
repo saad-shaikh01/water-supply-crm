@@ -169,7 +169,7 @@ describe('AuthService (phase 5: lockout, sessions, 2FA login flow)', () => {
       }
       expect(cache.store.get(`auth:fail:2fa:${admin.id}`)).toBe(4);
       await expect(auth.verifyTwoFactorLogin({ challengeToken: token, code: '000000' })).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(cache.store.get(`auth:lock:2fa:${admin.id}`)).toBe(true);
+      expect(cache.store.get(`auth:lock:2fa:${admin.id}`)).toEqual(expect.any(Number));
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ACCOUNT_LOCKED' }));
 
       // now locked: even a correct code is refused without consulting the verifier
@@ -206,7 +206,7 @@ describe('AuthService (phase 5: lockout, sessions, 2FA login flow)', () => {
       for (let i = 0; i < 5; i++) {
         await auth.validateUser('victim@x.com', 'wrong', { ip: '6.6.6.6' }).catch(() => undefined);
       }
-      expect(cache.store.get('auth:lock:victim@x.com|6.6.6.6')).toBe(true);
+      expect(cache.store.get('auth:lock:victim@x.com|6.6.6.6')).toEqual(expect.any(Number));
       // the legitimate user from another IP is not locked and can still log in
       const ok = await auth.validateUser('victim@x.com', 'Password123!', { ip: '7.7.7.7' });
       expect(ok).toMatchObject({ id: 'u-VENDOR_ADMIN' });
@@ -228,11 +228,25 @@ describe('AuthService (phase 5: lockout, sessions, 2FA login flow)', () => {
       expect(messages.join()).not.toMatch(/lock/i);
     });
 
+    it('an admin unlock marker lifts an ip-suffixed lock, but only locks set before it', async () => {
+      const { auth, cache } = setup({ user: user() });
+      for (let i = 0; i < 5; i++) await auth.validateUser('a@x.test', 'wrong', { ip: '2.2.2.2' }).catch(() => undefined);
+      await expect(auth.validateUser('a@x.test', 'Password123!', { ip: '2.2.2.2' })).rejects.toBeInstanceOf(UnauthorizedException);
+
+      // unlock (what PlatformAdminService.unlock writes): no key enumeration needed
+      cache.store.set('auth:unlocked:a@x.test', (cache.store.get('auth:lock:a@x.test|2.2.2.2') as number) + 1);
+      await expect(auth.validateUser('a@x.test', 'Password123!', { ip: '2.2.2.2' })).resolves.toMatchObject({ id: 'u-VENDOR_ADMIN' });
+
+      // a lock set AFTER the unlock blocks again
+      cache.store.set('auth:lock:a@x.test|2.2.2.2', Date.now() + 10_000);
+      await expect(auth.validateUser('a@x.test', 'Password123!', { ip: '2.2.2.2' })).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
     it('thresholds come from settings (fallback constants otherwise)', async () => {
       const { auth, cache } = setup({ user: user(), policy: { loginMaxAttempts: 3, loginLockMinutes: 1 } });
       for (let i = 0; i < 3; i++) await auth.validateUser('a@x.test', 'wrong', { ip: '5.5.5.5' }).catch(() => undefined);
-      expect(cache.store.get('auth:lock:a@x.test|5.5.5.5')).toBe(true);
-      expect(cache.set).toHaveBeenCalledWith('auth:lock:a@x.test|5.5.5.5', true, 60_000);
+      expect(cache.store.get('auth:lock:a@x.test|5.5.5.5')).toEqual(expect.any(Number));
+      expect(cache.set).toHaveBeenCalledWith('auth:lock:a@x.test|5.5.5.5', expect.any(Number), 60_000);
     });
 
     it('writes LOGIN_FAILED then ACCOUNT_LOCKED audit rows', async () => {
