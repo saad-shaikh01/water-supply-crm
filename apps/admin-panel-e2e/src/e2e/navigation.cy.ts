@@ -1,6 +1,10 @@
 const NAV = [
   { label: 'Overview', path: '/' },
   { label: 'Vendors', path: '/vendors' },
+  { label: 'Audit Logs', path: '/audit-logs' },
+  { label: 'System Health', path: '/system-health' },
+  { label: 'Imports', path: '/imports' },
+  { label: 'WhatsApp', path: '/whatsapp' },
   { label: 'Settings', path: '/settings' },
 ];
 

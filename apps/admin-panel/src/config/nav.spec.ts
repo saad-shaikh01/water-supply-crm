@@ -21,7 +21,7 @@ describe('nav registry', () => {
   it('uses the reserved orders for overview, vendors, settings', () => {
     const byId = Object.fromEntries(NAV_ITEMS.map((n) => [n.id, n.order]));
     expect(byId).toMatchObject({ overview: 10, vendors: 20, settings: 100 });
-    expect(sortedNavItems().map((n) => n.id)).toEqual(['overview', 'vendors', 'settings']);
+    expect(sortedNavItems().map((n) => n.id)).toEqual(['overview', 'vendors', 'audit-logs', 'system-health', 'imports', 'whatsapp', 'settings']);
   });
 
   it('root is exact-match, others prefix-match', () => {

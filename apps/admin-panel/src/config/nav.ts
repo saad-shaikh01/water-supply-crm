@@ -10,7 +10,7 @@
  * (enforced by config/nav.spec.ts).
  */
 import type { LucideIcon } from 'lucide-react';
-import { Building2, LayoutDashboard, Settings } from 'lucide-react';
+import { Activity, Building2, FileUp, LayoutDashboard, MessageCircle, ScrollText, Settings } from 'lucide-react';
 
 export interface NavItem {
   id: string;
@@ -24,6 +24,10 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { id: 'overview', label: 'Overview', href: '/', icon: LayoutDashboard, order: 10, match: 'exact' },
   { id: 'vendors', label: 'Vendors', href: '/vendors', icon: Building2, order: 20 },
+  { id: 'audit-logs', label: 'Audit Logs', href: '/audit-logs', icon: ScrollText, order: 30 },
+  { id: 'system-health', label: 'System Health', href: '/system-health', icon: Activity, order: 40 },
+  { id: 'imports', label: 'Imports', href: '/imports', icon: FileUp, order: 45 },
+  { id: 'whatsapp', label: 'WhatsApp', href: '/whatsapp', icon: MessageCircle, order: 50 },
   { id: 'settings', label: 'Settings', href: '/settings', icon: Settings, order: 100 },
 ];
 
