@@ -1,35 +1,48 @@
 /// <reference types="cypress" />
 
-// ***********************************************
-// This example commands.ts shows you how to
-// create various custom commands and overwrite
-// existing commands.
-//
-// For more comprehensive examples of custom
-// commands please read more here:
-// https://on.cypress.io/custom-commands
-// ***********************************************
+Cypress.Commands.add('apiLogin', (email: string, password: string) =>
+  cy
+    .request({
+      method: 'POST',
+      url: `${Cypress.env('apiUrl')}/auth/login`,
+      body: { identifier: email, password },
+    })
+    .then((res) => {
+      expect(res.status, 'login status').to.be.oneOf([200, 201]);
+      return res.body;
+    }),
+);
 
-// eslint-disable-next-line @typescript-eslint/no-namespace
-declare namespace Cypress {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  interface Chainable<Subject> {
-    login(email: string, password: string): void;
-  }
-}
-
-// -- This is a parent command --
-Cypress.Commands.add('login', (email, password) => {
-  console.log('Custom command example: Login', email, password);
+Cypress.Commands.add('setSessionCookies', ({ auth, refresh, role }) => {
+  cy.setCookie('auth_token', auth);
+  cy.setCookie('refresh_token', refresh);
+  cy.setCookie('user_role', role);
 });
-//
-// -- This is a child command --
-// Cypress.Commands.add("drag", { prevSubject: 'element'}, (subject, options) => { ... })
-//
-//
-// -- This is a dual command --
-// Cypress.Commands.add("dismiss", { prevSubject: 'optional'}, (subject, options) => { ... })
-//
-//
-// -- This will overwrite an existing command --
-// Cypress.Commands.overwrite("visit", (originalFn, url, options) => { ... })
+
+Cypress.Commands.add('loginAsSuperAdmin', () => {
+  cy.session(
+    'super-admin',
+    () => {
+      cy.task('resetThrottle');
+      cy.apiLogin(Cypress.env('adminEmail'), Cypress.env('adminPassword')).then((b) => {
+        cy.setSessionCookies({ auth: b.access_token, refresh: b.refresh_token, role: b.user.role });
+      });
+    },
+    {
+      validate() {
+        cy.getCookie('auth_token').should('exist');
+      },
+    },
+  );
+});
+
+Cypress.Commands.add('loginViaUi', (email: string, password: string) => {
+  cy.visit('/auth/login');
+  cy.get('#identifier').type(email);
+  cy.get('#password').type(password, { log: false });
+  cy.contains('button', /^Login$/).click();
+});
+
+Cypress.Commands.add('interceptPlatform', (fixture: string) =>
+  cy.intercept('GET', '**/dashboard/platform', { fixture }).as('platform'),
+);
