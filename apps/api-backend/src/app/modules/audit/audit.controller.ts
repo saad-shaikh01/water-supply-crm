@@ -20,8 +20,10 @@ export class AuditController {
   @Get()
   findAll(@CurrentUser() user: AuthUser, @Query() query: AuditLogQueryDto) {
     // SUPER_ADMIN sees all; VENDOR_ADMIN sees only their vendor.
-    const vendorId = user.role === UserRole.SUPER_ADMIN ? null : user.vendorId;
-    return this.auditService.findAll(vendorId, query);
+    // The optional `vendorId` query filter is honoured only for SUPER_ADMIN (handled below).
+    const isSuper = user.role === UserRole.SUPER_ADMIN;
+    const { vendorId: requestedVendorId, ...rest } = query;
+    return this.auditService.findAll(isSuper ? (requestedVendorId ?? null) : user.vendorId, rest);
   }
 
   @Get(':id')

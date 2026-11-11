@@ -55,3 +55,38 @@ describe('GET /audit-logs/:id tenant scoping', () => {
     await expect(controller.findOne(user(UserRole.SUPER_ADMIN, null), 'log-b')).resolves.toMatchObject({ id: 'log-b' });
   });
 });
+
+describe('GET /audit-logs vendorId / entities filters (P2 B7)', () => {
+  function listSetup() {
+    const prisma = { auditLog: { findMany: jest.fn(async () => []), count: jest.fn(async () => 0) } };
+    return { controller: new AuditController(new AuditService(prisma as never)), prisma };
+  }
+  const whereOf = (prisma: any) => prisma.auditLog.findMany.mock.calls[0][0].where;
+
+  it('a vendor admin passing a foreign vendorId still only sees their own vendor', async () => {
+    const { controller, prisma } = listSetup();
+    await controller.findAll(user(UserRole.VENDOR_ADMIN, 'vendor-a'), { vendorId: 'vendor-b' } as never);
+    expect(whereOf(prisma).vendorId).toBe('vendor-a');
+  });
+
+  it('SUPER_ADMIN may filter by vendorId', async () => {
+    const { controller, prisma } = listSetup();
+    await controller.findAll(user(UserRole.SUPER_ADMIN, null), { vendorId: 'vendor-b' } as never);
+    expect(whereOf(prisma).vendorId).toBe('vendor-b');
+  });
+
+  it('SUPER_ADMIN without vendorId sees all vendors', async () => {
+    const { controller, prisma } = listSetup();
+    await controller.findAll(user(UserRole.SUPER_ADMIN, null), {} as never);
+    expect(whereOf(prisma).vendorId).toBeUndefined();
+  });
+
+  it('entities comma list becomes an IN filter; entity wins if both given', async () => {
+    const { controller, prisma } = listSetup();
+    await controller.findAll(user(UserRole.SUPER_ADMIN, null), { entities: 'Vendor, User ,VendorBranding' } as never);
+    expect(whereOf(prisma).entity).toEqual({ in: ['Vendor', 'User', 'VendorBranding'] });
+    prisma.auditLog.findMany.mockClear();
+    await controller.findAll(user(UserRole.SUPER_ADMIN, null), { entity: 'Vendor', entities: 'User' } as never);
+    expect(whereOf(prisma).entity).toBe('Vendor');
+  });
+});
