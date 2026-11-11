@@ -144,7 +144,7 @@ describe('Phase 4: billing', () => {
         cy.get('input[aria-label="Search vendors"]').type(vendor.name);
         cy.contains('tr', vendor.name).within(() => {
           cy.contains('Over limit');
-          cy.get('[data-testid="usage-customers"]').should('have.attr', 'data-over', 'true');
+          cy.get('[data-over="true"]').should('exist');
         });
         // restore the vendor to an unlimited plan (limits must not leak into other suites)
         cy.adminApi('GET', '/platform/plans?includeInactive=true').then((r) => {

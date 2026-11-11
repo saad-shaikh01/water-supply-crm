@@ -71,5 +71,5 @@ Cypress.Commands.add('createTestVendor', (prefix = 'e2e') => {
       adminPassword: 'E2eTest@12345',
       adminName: `Admin ${n}`,
     })
-    .then((res) => ({ id: res.body.id as string, name: `Vendor ${n}` }));
+    .then((res) => ({ id: (res.body.vendor?.id ?? res.body.id) as string, name: `Vendor ${n}` }));
 });
