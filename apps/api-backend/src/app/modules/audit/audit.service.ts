@@ -33,12 +33,16 @@ export class AuditService {
   }
 
   async findAll(callerVendorId: string | null, query: AuditLogQueryDto) {
-    const { page = 1, limit = 20, entity, entityId, userId, action, from, to } = query;
+    const { page = 1, limit = 20, entity, entities, entityId, userId, action, from, to } = query;
 
     const where: any = {};
-    // SUPER_ADMIN passes null vendorId → no vendor filter
+    // SUPER_ADMIN passes null vendorId → no vendor filter (or the vendor chosen via the `vendorId` query)
     if (callerVendorId) where.vendorId = callerVendorId;
     if (entity) where.entity = entity;
+    else if (entities) {
+      const list = entities.split(',').map((e) => e.trim()).filter(Boolean);
+      if (list.length) where.entity = { in: list };
+    }
     if (entityId) where.entityId = entityId;
     if (userId) where.userId = userId;
     if (action) where.action = action;

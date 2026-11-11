@@ -6,10 +6,13 @@ import { forgotPasswordSchema, ForgotPasswordInput } from '../schemas';
 import { Button, Input, Label, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@water-supply-crm/ui';
 import Link from 'next/link';
 import { useState } from 'react';
+import { authApi } from '../api/auth.api';
+import { apiErrorMessage } from '../../../lib/api-error';
 
 export function ForgotPasswordForm() {
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  
+  const [message, setMessage] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   const {
     register,
     handleSubmit,
@@ -19,20 +22,21 @@ export function ForgotPasswordForm() {
   });
 
   const onSubmit = async (data: ForgotPasswordInput) => {
-    // Placeholder for API call
-    console.log('Forgot password request for:', data.email);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSubmitted(true);
+    setSubmitError(null);
+    try {
+      const res = await authApi.forgotPassword(data.email);
+      setMessage(res.message);
+    } catch (e) {
+      setSubmitError(apiErrorMessage(e, 'Could not send the reset link. Please try again.'));
+    }
   };
 
-  if (isSubmitted) {
+  if (message) {
     return (
       <Card className="w-full max-w-md mx-auto">
         <CardHeader>
           <CardTitle>Check your email</CardTitle>
-          <CardDescription>
-            We've sent a password reset link to your email address.
-          </CardDescription>
+          <CardDescription>{message}</CardDescription>
         </CardHeader>
         <CardFooter>
           <Button asChild className="w-full">
@@ -48,7 +52,7 @@ export function ForgotPasswordForm() {
       <CardHeader>
         <CardTitle>Forgot Password</CardTitle>
         <CardDescription>
-          Enter your email and we'll send you a link to reset your password.
+          Enter your email and we will send you a link to reset your password.
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -65,6 +69,11 @@ export function ForgotPasswordForm() {
               <p className="text-sm text-destructive">{errors.email.message}</p>
             )}
           </div>
+          {submitError && (
+            <p role="alert" className="text-sm text-destructive">
+              {submitError}
+            </p>
+          )}
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
           <Button type="submit" className="w-full" disabled={isSubmitting}>

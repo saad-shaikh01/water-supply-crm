@@ -1,5 +1,6 @@
-import { apiClient } from '@water-supply-crm/data-access';
+import { apiClient, unwrap } from '../../../lib/api';
+import type { PlatformOverview } from '../types';
 
 export const dashboardApi = {
-  getOverview: () => apiClient.get('/dashboard/overview'),
+  getPlatformOverview: () => unwrap<PlatformOverview>(apiClient.get('/dashboard/platform')),
 };

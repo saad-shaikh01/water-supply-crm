@@ -633,7 +633,7 @@ export class DashboardService {
 
   /** Platform-level overview — SUPER_ADMIN only */
   async getPlatformOverview() {
-    const cacheKey = 'platform:dashboard:overview';
+    const cacheKey = CACHE_KEYS.PLATFORM_DASHBOARD_OVERVIEW;
     const cached = await this.cache.get<any>(cacheKey);
     if (cached) return cached;
 

@@ -1,13 +1,11 @@
-import { OverviewStats } from '../../features/dashboard/components/overview-stats';
+import { PageHeader } from '../../components/shared/page-header';
+import { PlatformOverviewView } from '../../features/dashboard/components/platform-overview';
 
 export default function DashboardPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Platform Overview</h1>
-        <p className="text-muted-foreground">Real-time stats across all vendors on the platform.</p>
-      </div>
-      <OverviewStats />
+      <PageHeader title="Platform Overview" description="Real-time stats across all vendors on the platform." />
+      <PlatformOverviewView />
     </div>
   );
 }

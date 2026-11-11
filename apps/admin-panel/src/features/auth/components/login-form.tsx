@@ -6,10 +6,26 @@ import { loginSchema, LoginInput } from '../schemas';
 import { useLogin } from '../hooks/use-auth';
 import { Button, Input, Label, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@water-supply-crm/ui';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+
+const BANNERS: Record<string, { text: string; tone: 'info' | 'error' }> = {
+  forbidden: { text: 'This panel is for platform administrators only.', tone: 'error' },
+  expired: { text: 'Your session has expired. Please sign in again.', tone: 'info' },
+  success: { text: 'Your password has been reset. Please sign in.', tone: 'info' },
+};
+
+function useBanner() {
+  const params = useSearchParams();
+  const reason = params?.get('reason');
+  if (reason && BANNERS[reason]) return BANNERS[reason];
+  if (params?.get('reset') === 'success') return BANNERS['success'];
+  return null;
+}
 
 export function LoginForm() {
   const { mutate: login, isPending } = useLogin();
-  
+  const banner = useBanner();
+
   const {
     register,
     handleSubmit,
@@ -28,6 +44,19 @@ export function LoginForm() {
         <CardTitle>Login</CardTitle>
         <CardDescription>Enter your credentials to access your account</CardDescription>
       </CardHeader>
+      {banner && (
+        <div
+          role="status"
+          data-testid="login-banner"
+          className={
+            banner.tone === 'error'
+              ? 'mx-6 mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive'
+              : 'mx-6 mb-2 rounded-md border bg-muted px-3 py-2 text-sm'
+          }
+        >
+          {banner.text}
+        </div>
+      )}
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -66,12 +95,6 @@ export function LoginForm() {
           <Button type="submit" className="w-full" disabled={isPending}>
             {isPending ? 'Logging in...' : 'Login'}
           </Button>
-          <p className="text-sm text-center text-muted-foreground">
-            Don't have an account?{' '}
-            <Link href="/auth/signup" className="text-primary hover:underline">
-              Sign up
-            </Link>
-          </p>
         </CardFooter>
       </form>
     </Card>

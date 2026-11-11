@@ -78,6 +78,11 @@ export class CacheInvalidationService {
     await this.cacheManager.del(this.vendorKey(vendorId, `${CACHE_KEYS.DASHBOARD}:overview`));
   }
 
+  /** Invalidate the SUPER_ADMIN platform dashboard overview (vendor create/suspend/unsuspend/delete/wipe). */
+  async invalidatePlatformDashboard(): Promise<void> {
+    await this.cacheManager.del(CACHE_KEYS.PLATFORM_DASHBOARD_OVERVIEW);
+  }
+
   /** Invalidate daily dashboard cache. Pass a date string (YYYY-MM-DD) to target one day, or omit to wipe all daily caches. */
   async invalidateDailyDashboard(vendorId: string, date?: string): Promise<void> {
     if (date) {

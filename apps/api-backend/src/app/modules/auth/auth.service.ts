@@ -12,6 +12,8 @@ import * as bcrypt from 'bcrypt';
 
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 const REFRESH_KEY = (token: string) => `auth:refresh:${token}`;
+/** Redis marker: epoch-ms before which a user's sessions (access + refresh tokens) are void. */
+export const sessionsValidAfterKey = (userId: string) => `user:${userId}:sessionsValidAfter`;
 
 @Injectable()
 export class AuthService {
@@ -71,6 +73,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
+    // Sessions revoked (e.g. admin password reset) after this refresh token was issued?
+    const validAfter = await this.cache.get<number>(sessionsValidAfterKey(stored.userId));
+    if (validAfter && (stored.issuedAt ?? 0) < validAfter) {
+      await this.cache.del(REFRESH_KEY(refreshToken));
+      throw new UnauthorizedException('Session expired. Please sign in again.');
+    }
+
     // Rotate: delete old token, issue new pair
     await this.cache.del(REFRESH_KEY(refreshToken));
     const user = await this.userService.findById(stored.userId);
@@ -79,6 +88,14 @@ export class AuthService {
     }
 
     return this.generateTokens(user);
+  }
+
+  /**
+   * Invalidate every existing session of a user: access JWTs (checked in JwtStrategy via `iat`) and
+   * refresh tokens (checked in refreshTokens). TTL = refresh lifetime, after which nothing older can exist.
+   */
+  async revokeUserSessions(userId: string): Promise<void> {
+    await this.cache.set(sessionsValidAfterKey(userId), Date.now(), REFRESH_TTL_MS);
   }
 
   async logout(refreshToken: string): Promise<void> {
@@ -104,7 +121,7 @@ export class AuthService {
     const refreshToken = randomUUID();
     await this.cache.set(
       REFRESH_KEY(refreshToken),
-      { userId: user.id },
+      { userId: user.id, issuedAt: Date.now() },
       REFRESH_TTL_MS,
     );
 
