@@ -56,6 +56,7 @@ import { CustomerDepositsModule } from './modules/customer-deposits/customer-dep
 import { VendorImportModule } from './modules/vendor-import/vendor-import.module';
 import { VendorBrandingModule } from './modules/vendor-branding/vendor-branding.module';
 import { VendorReadinessModule } from './modules/vendor-readiness/vendor-readiness.module';
+import { PlatformObservabilityModule } from './modules/platform-observability/platform-observability.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -113,6 +114,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     VendorImportModule,
     VendorBrandingModule,
     VendorReadinessModule,
+    PlatformObservabilityModule,
   ],
   controllers: [AppController],
   providers: [
