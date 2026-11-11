@@ -203,7 +203,7 @@ export function CreateVendorWizard({ open, onOpenChange }: Props) {
               <dt className="text-muted-foreground">Admin</dt>
               <dd>{review.adminName}</dd>
               <dt className="text-muted-foreground">Admin email</dt>
-              <dd>{review.adminEmail}</dd>
+              <dd>{review.adminEmail.trim().toLowerCase()}</dd>
               <dt className="text-muted-foreground">Password</dt>
               <dd>{'•'.repeat(Math.min(review.adminPassword.length, 12))}</dd>
             </dl>
