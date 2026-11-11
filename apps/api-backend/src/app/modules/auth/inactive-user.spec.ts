@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
+import { authExtraDeps } from './testing/auth-deps';
 import { JwtStrategy } from './jwt.strategy';
 import { PermissionService } from '../authz/permission.service';
 import { UserService, userInactiveKey, USER_INACTIVE_FLAG_TTL_MS } from '../user/user.service';
@@ -30,7 +31,7 @@ describe('AuthService.validateUser — inactive users', () => {
   const makeAuth = (user: unknown) => {
     const cache = makeCache();
     const users = { findByIdentifier: jest.fn(async () => user) };
-    return { auth: new AuthService(users as never, {} as never, {} as never, cache as never), cache };
+    return { auth: new AuthService(users as never, {} as never, {} as never, cache as never, ...(authExtraDeps() as [never, never, never, never])), cache };
   };
 
   it('rejects login for a deactivated user even with the CORRECT password', async () => {

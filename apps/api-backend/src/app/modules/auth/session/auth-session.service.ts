@@ -32,15 +32,20 @@ export class AuthSessionService {
     private readonly cache: CacheInvalidationService,
   ) {}
 
-  create(userId: string, ctx: SessionContext = {}) {
-    return this.prisma.authSession.create({
-      data: {
-        userId,
-        ip: ctx.ip ?? null,
-        userAgent: ctx.userAgent?.slice(0, 500) ?? null,
-        expiresAt: new Date(Date.now() + SESSION_TTL_MS),
-      },
-    });
+  /** A new session == a login, so this also stamps User.lastLoginAt. */
+  async create(userId: string, ctx: SessionContext = {}) {
+    const [session] = await this.prisma.$transaction([
+      this.prisma.authSession.create({
+        data: {
+          userId,
+          ip: ctx.ip ?? null,
+          userAgent: ctx.userAgent?.slice(0, 500) ?? null,
+          expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+        },
+      }),
+      this.prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } }),
+    ]);
+    return session;
   }
 
   /** Throws 401 when the session was revoked / expired / does not exist. */
