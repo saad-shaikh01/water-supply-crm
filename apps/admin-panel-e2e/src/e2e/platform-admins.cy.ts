@@ -1,3 +1,4 @@
+export {}; // module scope: keeps top-level consts private to this spec
 /**
  * Phase 5 - platform administrators page. Runs against the real API + admin panel.
  * Root (the configured SUPER_ADMIN) drives the UI; targets are fresh admins created per scenario.

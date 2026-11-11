@@ -1,3 +1,4 @@
+export {}; // module scope: keeps top-level consts private to this spec
 /**
  * Phase 5 - security headers and CSP. Runs against the real API + admin panel.
  * HSTS is production-only (next.config adds it when NODE_ENV=production) and is asserted by a unit test.

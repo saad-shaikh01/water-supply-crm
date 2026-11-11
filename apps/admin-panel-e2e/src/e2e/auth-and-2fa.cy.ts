@@ -1,3 +1,4 @@
+export {}; // module scope: keeps top-level consts private to this spec
 /**
  * Phase 5 - sign-in hardening and TOTP 2FA. Runs against the real API + admin panel.
  * Each scenario that changes an account uses its own freshly created admin so the shared root account stays 2FA-free.

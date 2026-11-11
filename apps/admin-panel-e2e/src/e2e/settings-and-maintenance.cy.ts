@@ -1,3 +1,4 @@
+export {}; // module scope: keeps top-level consts private to this spec
 /**
  * Phase 5 - global settings and maintenance mode. Runs against the real API + admin panel.
  * Settings are reset to their defaults after every test.

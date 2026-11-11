@@ -1,3 +1,4 @@
+export {}; // module scope: keeps top-level consts private to this spec
 /**
  * Phase 5 - session list and revoke. Runs against the real API + admin panel.
  * One dedicated admin; two API logins stand in for two browsers. Every test starts from exactly two sessions.

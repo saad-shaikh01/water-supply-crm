@@ -1,3 +1,4 @@
+export {}; // module scope: keeps top-level consts private to this spec
 /**
  * Phase 2 - Vendor 360. Runs against the real API + admin panel.
  * Fixtures are created through the API with a unique `e2e-<timestamp>` prefix and removed in `after`.

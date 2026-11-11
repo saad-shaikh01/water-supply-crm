@@ -55,7 +55,7 @@ Cypress.Commands.add('apiAs', (token: string, method: string, path: string, body
     method,
     url: `${Cypress.env('apiUrl')}${path}`,
     headers: { Authorization: `Bearer ${token}` },
-    body,
+    body: body as Cypress.RequestBody,
     failOnStatusCode: false,
   }),
 );
