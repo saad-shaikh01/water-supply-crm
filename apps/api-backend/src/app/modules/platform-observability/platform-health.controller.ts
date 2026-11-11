@@ -1,17 +1,8 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsBooleanString, IsInt, IsOptional, Max, Min } from 'class-validator';
-import { Type } from 'class-transformer';
 import { RequireSuperAdmin } from '../../common/decorators/authz-markers.decorator';
 import { PlatformHealthService } from './platform-health.service';
-
-export class HealthQueryDto {
-  @IsOptional() @IsBooleanString() refresh?: string;
-}
-
-export class FailedJobsQueryDto {
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
-}
+import { FailedJobsQueryDto, HealthQueryDto } from './dto/platform-health-query.dto';
 
 @Controller('platform/health')
 @RequireSuperAdmin()
