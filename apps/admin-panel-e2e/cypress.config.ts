@@ -1,6 +1,7 @@
 import { nxE2EPreset } from '@nx/cypress/plugins/cypress-preset';
 import { defineConfig } from 'cypress';
 import { execFileSync } from 'node:child_process';
+import { authenticator } from 'otplib';
 
 /**
  * Admin-panel e2e config.
@@ -14,6 +15,8 @@ import { execFileSync } from 'node:child_process';
  */
 const baseUrl = process.env['CYPRESS_BASE_URL'] || 'http://127.0.0.1:4200';
 const redisContainer = process.env['CYPRESS_REDIS_CONTAINER'] || 'wscrm-redis';
+const pgContainer = process.env['CYPRESS_PG_CONTAINER'] || 'wscrm-test-pg';
+const pgDatabase = process.env['CYPRESS_PG_DB'] || 'wscrm_p5';
 
 /** Run redis-cli inside the dev Redis container (used only to reset throttler counters). */
 function redisEval(script: string, ...args: string[]): string {
@@ -54,6 +57,31 @@ export default defineConfig({
         resetThrottle() {
           redisEval(DEL_BY_PATTERN, '{*}:hits', '{*}:blocked');
           return null;
+        },
+        /**
+         * Break-glass for a failed 2FA-enforcement test: with enforcement ON the root admin (no 2FA) cannot sign in to
+         * switch it off, so delete the setting row and bust the Redis cache directly. Never used on the happy path.
+         */
+        forceEnforcementOff() {
+          execFileSync('docker', ['exec', pgContainer, 'psql', '-U', 'wscrm', '-d', pgDatabase, '-c', "DELETE FROM platform_settings WHERE key = 'security.require2faForSuperAdmin'"], { encoding: 'utf8' });
+          redisEval("redis.call('del', ARGV[1]) return 1", 'platform:settings:v1');
+          return null;
+        },
+        /**
+         * Current TOTP code for a base32 secret (otplib, same defaults as the API: SHA1/6 digits/30 s).
+         * Waits for a fresh time-step when fewer than 2 s remain, so a code is never rejected for expiring mid-request.
+         */
+        async totp(secret: string) {
+          const remaining = authenticator.timeRemaining();
+          if (remaining < 2) await new Promise((r) => setTimeout(r, (remaining + 1) * 1000));
+          return authenticator.generate(secret);
+        },
+        /**
+         * Code for the NEXT time-step (accepted through the API's +-1 step window). The API rejects a step <= the
+         * last accepted one (replay protection), so a second login right after enrolling needs a later step.
+         */
+        totpAhead(secret: string) {
+          return authenticator.clone({ epoch: Date.now() + 30_000 }).generate(secret);
         },
       });
     },
