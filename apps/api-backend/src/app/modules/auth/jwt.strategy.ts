@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { vendorSuspendedKey } from '../vendor/vendor.service';
+import { sessionsValidAfterKey } from './auth.service';
 import { userInactiveKey } from '../user/user.service';
 import { allowsQueryToken, getJwtSecret } from './jwt-secret';
 
@@ -39,6 +40,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Deactivated after this token was issued? (flag set by UserService.deactivate)
     if (payload.sub && (await this.cache.get<boolean>(userInactiveKey(payload.sub)))) {
       throw new UnauthorizedException('Your account has been deactivated. Contact your administrator.');
+    }
+
+    // Sessions revoked after this token was issued? (AuthService.revokeUserSessions)
+    if (payload.sub) {
+      const validAfter = await this.cache.get<number>(sessionsValidAfterKey(payload.sub));
+      if (validAfter && (payload.iat ?? 0) < Math.floor(validAfter / 1000)) {
+        throw new UnauthorizedException('Your session has expired. Please sign in again.');
+      }
     }
 
     return {
