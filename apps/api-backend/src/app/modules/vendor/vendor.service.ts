@@ -343,7 +343,23 @@ export class VendorService implements OnModuleInit {
       );
     }
 
+    // Real business records authored by this vendor's staff reference users with
+    // ON DELETE RESTRICT, so deleting the users would fail (previously a bare 500).
+    // Refuse up front with a clear list instead of cascade-deleting business data.
+    const blockers = await this.findDeleteBlockers(id);
+    if (blockers.length > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: `Cannot delete vendor — it has business records that must be kept: ${blockers
+          .map((b) => `${b.entity} (${b.count})`)
+          .join(', ')}. Suspend the vendor instead, or use the wipe flow.`,
+        blockers,
+      });
+    }
+
     // Delete all related data in order (Prisma cascade may not cover all)
+    try {
     await this.prisma['$transaction'](async (tx: any) => {
       await tx.dailySheetItem.deleteMany({ where: { dailySheet: { vendorId: id } } });
       await tx.dailySheet.deleteMany({ where: { vendorId: id } });
@@ -359,6 +375,20 @@ export class VendorService implements OnModuleInit {
       await tx.user.deleteMany({ where: { vendorId: id } });
       await tx.vendor.delete({ where: { id } });
     });
+    } catch (err) {
+      // Safety net for FK-protected rows not covered by findDeleteBlockers: the transaction
+      // is rolled back, so nothing is half-deleted. Report as 409, never a raw 500.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+        const constraint = String((err.meta as any)?.constraint ?? (err.meta as any)?.field_name ?? 'foreign key');
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          message: `Cannot delete vendor — other records still reference it (${constraint}). Suspend the vendor instead, or use the wipe flow.`,
+          blockers: [{ entity: constraint, count: null }],
+        });
+      }
+      throw err;
+    }
 
     await this.cache.del(vendorSuspendedKey(id));
 
@@ -372,6 +402,26 @@ export class VendorService implements OnModuleInit {
     });
 
     return { message: 'Vendor and all associated data deleted permanently' };
+  }
+
+  /** Vendor-scoped business models whose rows reference users with RESTRICT FKs. */
+  private static readonly DELETE_BLOCKER_MODELS = [
+    'expense', 'extraLabour', 'crewCashDistribution', 'damageCase', 'sheetDiscrepancyCase',
+    'conversationMessage', 'salaryStructure', 'productCost', 'staffLedgerEntry', 'staffAdvancePlan',
+    'payrollEntry', 'settlement', 'staffAttendance', 'vehicleDocument', 'vehicleDailyCheck',
+    'fuelLog', 'fuelCard', 'standaloneCrewCashExpense', 'sheetAdvance', 'vehicleServiceRecord',
+    'vanCashHandover', 'officeCashRemittance', 'customerFinancialAdjustment', 'customerDepositEntry',
+  ] as const;
+
+  private async findDeleteBlockers(vendorId: string): Promise<{ entity: string; count: number }[]> {
+    const db = this.prisma as any;
+    const counts = await Promise.all(
+      VendorService.DELETE_BLOCKER_MODELS.map(async (model) => ({
+        entity: model,
+        count: (await db[model]?.count?.({ where: { vendorId } })) ?? 0,
+      })),
+    );
+    return counts.filter((c) => c.count > 0);
   }
 
   /** Detailed stats for a single vendor — used in SUPER_ADMIN vendor detail view */
