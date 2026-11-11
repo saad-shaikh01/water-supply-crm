@@ -61,6 +61,7 @@ import { AnnouncementsModule } from './modules/announcements/announcements.modul
 import { ImpersonationModule } from './modules/impersonation/impersonation.module';
 import { ImpersonationGuard } from './modules/impersonation/impersonation.guard';
 import { ImpersonationAuditInterceptor } from './modules/impersonation/impersonation-audit.interceptor';
+import { PlatformObservabilityModule } from './modules/platform-observability/platform-observability.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -121,6 +122,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     BillingModule,
     AnnouncementsModule,
     ImpersonationModule,
+    PlatformObservabilityModule,
   ],
   controllers: [AppController],
   providers: [

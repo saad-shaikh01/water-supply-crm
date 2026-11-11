@@ -70,8 +70,10 @@ describeDb('Tenant security (real Postgres): vendors A and B', () => {
   let adminA: AuthUser;
 
   beforeAll(async () => {
-    A = await vendors.create({ name: `A ${RUN}`, slug: `sec-a-${RUN}`, adminEmail: `admin-a-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin A' });
-    B = await vendors.create({ name: `B ${RUN}`, slug: `sec-b-${RUN}`, adminEmail: `admin-b-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin B' });
+    A = (await vendors.create({ name: `A ${RUN}`, slug: `sec-a-${RUN}`, adminEmail: `admin-a-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin A' })).vendor;
+
+    B = (await vendors.create({ name: `B ${RUN}`, slug: `sec-b-${RUN}`, adminEmail: `admin-b-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin B' })).vendor;
+
     created.vendorIds.push(A.id, B.id);
     adminA = asUser(await prisma.user.findUniqueOrThrow({ where: { email: `admin-a-${RUN}@t.test` } }));
   });

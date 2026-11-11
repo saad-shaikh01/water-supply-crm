@@ -1,0 +1,8 @@
+{
+  "vendors": { "total": 0, "active": 0, "suspended": 0, "newThisMonth": 0 },
+  "customers": { "total": 0 },
+  "drivers": { "totalActive": 0 },
+  "revenue": { "allTime": 0, "thisMonth": 0, "lastMonth": 0, "growthPercent": 0 },
+  "deliveries": { "thisMonth": 0 },
+  "topVendors": []
+}

@@ -2,6 +2,7 @@ import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { QueryProvider } from '@water-supply-crm/data-access';
 import { Toaster } from '@water-supply-crm/ui';
 import { ThemeProvider } from '../components/layout/theme-provider';
+import { SessionListener } from '../components/layout/session-listener';
 import './global.css';
 
 export const metadata = {
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           disableTransitionOnChange
         >
           <QueryProvider>
+            <SessionListener />
             <NuqsAdapter>
               {children}
             </NuqsAdapter>

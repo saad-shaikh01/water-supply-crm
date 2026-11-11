@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { vendorSuspendedKey } from '../vendor/vendor.service';
+import { sessionsValidAfterKey } from './auth.service';
 import { userInactiveKey } from '../user/user.service';
 import type { AuthUser } from '@water-supply-crm/types';
 import { impersonationActiveKey } from '../impersonation/impersonation.service';
@@ -61,6 +62,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         mode: imp.mode === 'SUPPORT' ? 'SUPPORT' : 'READ_ONLY',
         expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : undefined,
       };
+    }
+
+    // Sessions revoked after this token was issued? (AuthService.revokeUserSessions)
+    if (payload.sub) {
+      const validAfter = await this.cache.get<number>(sessionsValidAfterKey(payload.sub));
+      if (validAfter && (payload.iat ?? 0) < Math.floor(validAfter / 1000)) {
+        throw new UnauthorizedException('Your session has expired. Please sign in again.');
+      }
     }
 
     return {

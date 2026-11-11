@@ -147,14 +147,3 @@ export class VendorWhatsAppAdminController {
     return this.accounts.importPlatformCredentials(vendorId, user);
   }
 }
-
-@Controller('platform/whatsapp-accounts')
-@RequireSuperAdmin()
-export class PlatformWhatsAppController {
-  constructor(private readonly accounts: WhatsAppAccountService) {}
-
-  @Get()
-  list() {
-    return this.accounts.listAccounts();
-  }
-}

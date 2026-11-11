@@ -48,7 +48,8 @@ describeDb('Vendor onboarding (real Postgres)', () => {
 
   const createdVendorIds: string[] = [];
   const track = async (tag: string) => {
-    const v = await service.create(dto(tag));
+    const v = (await service.create(dto(tag))).vendor;
+
     createdVendorIds.push(v.id);
     return v;
   };
@@ -110,7 +111,7 @@ describeDb('Vendor onboarding (real Postgres)', () => {
   });
 
   it('a freshly provisioned vendor can still be deleted (seeded rows do not block removal)', async () => {
-    const vendor = await service.create(dto('del'));
+    const { vendor } = await service.create(dto('del'));
     await service.remove(vendor.id);
     expect(await prisma.vendor.findUnique({ where: { id: vendor.id } })).toBeNull();
     expect(await prisma.customerFlagCategory.count({ where: { vendorId: vendor.id } })).toBe(0);
