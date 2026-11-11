@@ -57,6 +57,7 @@ import { VendorImportModule } from './modules/vendor-import/vendor-import.module
 import { VendorBrandingModule } from './modules/vendor-branding/vendor-branding.module';
 import { VendorReadinessModule } from './modules/vendor-readiness/vendor-readiness.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { ImpersonationModule } from './modules/impersonation/impersonation.module';
 import { ImpersonationGuard } from './modules/impersonation/impersonation.guard';
 import { ImpersonationAuditInterceptor } from './modules/impersonation/impersonation-audit.interceptor';
@@ -118,6 +119,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     VendorBrandingModule,
     VendorReadinessModule,
     BillingModule,
+    AnnouncementsModule,
     ImpersonationModule,
   ],
   controllers: [AppController],
