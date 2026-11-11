@@ -23,6 +23,13 @@ export function middleware(request: NextRequest) {
     NextResponse.redirect(new URL(path, `${proto}://${host}`));
 
   // Protect dashboard routes — redirect to login if no token
+  // Support (impersonation) sessions: the exchange / ended pages must always be reachable, and a
+  // dead session (token cleared by a 401 or expiry) lands on the "Support session ended" screen.
+  if (pathname.startsWith('/auth/impersonate')) return NextResponse.next();
+  if (!token && request.cookies.get('impersonating')?.value === '1' && (pathname.startsWith('/dashboard') || pathname === '/auth/login')) {
+    return redirectTo('/auth/impersonate/ended');
+  }
+
   if (!token && pathname.startsWith('/dashboard')) {
     return redirectTo('/auth/login');
   }
