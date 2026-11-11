@@ -14,6 +14,7 @@ import { VendorModule } from './modules/vendor/vendor.module';
 import { UserModule } from './modules/user/user.module';
 import { AuthzModule } from './modules/authz/authz.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
 import { ProductModule } from './modules/product/product.module';
 import { RouteModule } from './modules/route/route.module';
 import { CustomerModule } from './modules/customer/customer.module';
@@ -71,6 +72,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     UserModule,
     AuthzModule,
     AuthModule,
+    PlatformAdminModule,
     ProductModule,
     RouteModule,
     CustomerModule,
