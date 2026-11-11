@@ -28,6 +28,19 @@ export const queryKeys = {
     stats: ['imports', 'stats'] as const,
     detail: (id: string) => ['imports', 'detail', id] as const,
   },
+  platformAdmins: {
+    all: ['platform-admins'] as const,
+    list: (p: object) => ['platform-admins', 'list', p] as const,
+    sessions: (id: string) => ['platform-admins', 'sessions', id] as const,
+  },
+  platformSettings: {
+    all: ['platform-settings'] as const,
+  },
+  security: {
+    all: ['security'] as const,
+    twoFactor: ['security', '2fa'] as const,
+    sessions: ['security', 'sessions'] as const,
+  },
   vendors: {
     all: ['vendors'] as const,
     list: (p: object) => ['vendors', 'list', p] as const,
