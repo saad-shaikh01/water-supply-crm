@@ -36,3 +36,56 @@ describe('VendorService.findOne tenant scoping (C5 cross-tenant fix)', () => {
     await expect(svc.findOne('v1', vendorAdmin('v1'))).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+describe('VendorService invalidates the platform dashboard cache', () => {
+  const vendor = (isActive: boolean) => ({ id: 'v1', name: 'V', slug: 'v', isActive, _count: { transactions: 0, customers: 0 } });
+
+  function build(isActive: boolean) {
+    const tx: any = {
+      vendor: { create: jest.fn(async () => ({ id: 'v1', name: 'V', slug: 'v' })), delete: jest.fn(), update: jest.fn() },
+      user: { create: jest.fn(async () => ({ id: 'u1', email: 'a@x.com', name: 'A', role: 'VENDOR_ADMIN' })), deleteMany: jest.fn() },
+    };
+    for (const m of ['dailySheetItem', 'dailySheet', 'bottleWallet', 'customerProductPrice', 'customer', 'van', 'route', 'product', 'customerFlagCategory']) {
+      tx[m] = { deleteMany: jest.fn() };
+    }
+    const prisma = {
+      vendor: {
+        findUnique: jest.fn(async (args: any) => (args.where.slug ? null : vendor(isActive))),
+        update: jest.fn(),
+      },
+      user: { findUnique: jest.fn(async () => null) },
+      $transaction: jest.fn(async (fn: any) => fn(tx)),
+    };
+    const cache = { set: jest.fn(), del: jest.fn(), invalidatePlatformDashboard: jest.fn(async () => undefined) };
+    const audit = { log: jest.fn() };
+    const provisioning = { provisionInTx: jest.fn(async () => ({ roleIdByKey: new Map() })) };
+    const svc = new VendorService(prisma as never, cache as never, audit as never, provisioning as never);
+    return { svc, cache };
+  }
+
+  it('create', async () => {
+    const { svc, cache } = build(true);
+    await svc.create({ name: 'V', slug: 'v', adminEmail: 'a@x.com', adminPassword: 'Passw0rd!', adminName: 'A' } as never);
+    expect(cache.invalidatePlatformDashboard).toHaveBeenCalledTimes(1);
+  });
+  it('suspend', async () => {
+    const { svc, cache } = build(true);
+    await svc.suspend('v1');
+    expect(cache.invalidatePlatformDashboard).toHaveBeenCalledTimes(1);
+  });
+  it('unsuspend', async () => {
+    const { svc, cache } = build(false);
+    await svc.unsuspend('v1');
+    expect(cache.invalidatePlatformDashboard).toHaveBeenCalledTimes(1);
+  });
+  it('remove', async () => {
+    const { svc, cache } = build(true);
+    await svc.remove('v1');
+    expect(cache.invalidatePlatformDashboard).toHaveBeenCalledTimes(1);
+  });
+  it('does not invalidate when suspend fails (already suspended)', async () => {
+    const { svc, cache } = build(false);
+    await expect(svc.suspend('v1')).rejects.toThrow();
+    expect(cache.invalidatePlatformDashboard).not.toHaveBeenCalled();
+  });
+});

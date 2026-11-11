@@ -121,6 +121,8 @@ export class VendorService implements OnModuleInit {
       changes: { after: { email: created.admin.email, name: created.admin.name, role: created.admin.role } },
     });
 
+    await this.cache.invalidatePlatformDashboard();
+
     return created.vendor;
   }
 
@@ -203,6 +205,7 @@ export class VendorService implements OnModuleInit {
     // Set Redis flag — JwtStrategy checks this on every request (fast cache lookup)
     // No TTL — stays until explicitly unsuspended
     await this.cache.set(vendorSuspendedKey(id), true, 0);
+    await this.cache.invalidatePlatformDashboard();
 
     await this.audit.log({
       vendorId: id,
@@ -222,6 +225,7 @@ export class VendorService implements OnModuleInit {
 
     await this.prisma.vendor.update({ where: { id }, data: { isActive: true } });
     await this.cache.del(vendorSuspendedKey(id));
+    await this.cache.invalidatePlatformDashboard();
 
     await this.audit.log({
       vendorId: id,
@@ -269,6 +273,7 @@ export class VendorService implements OnModuleInit {
     });
 
     await this.cache.del(vendorSuspendedKey(id));
+    await this.cache.invalidatePlatformDashboard();
 
     await this.audit.log({
       action: 'DELETE',

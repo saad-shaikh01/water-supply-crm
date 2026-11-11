@@ -1,15 +1,25 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Badge, Skeleton, DataTablePagination } from '@water-supply-crm/ui';
-import { Eraser, Pause, Pencil, Play, Trash2 } from 'lucide-react';
+import { Button, Badge } from '@water-supply-crm/ui';
+import { Eraser, Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { useVendors, useDeleteVendor, useSuspendVendor, useUnsuspendVendor } from '../hooks/use-vendors';
 import { VendorForm } from './vendor-form';
 import { WipeVendorDialog } from './wipe-vendor-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
+import { DataTable, type DataTableColumn } from '../../../components/shared/data-table';
 
-export function VendorList() {
-  const { data, isLoading, page, setPage, limit, setLimit } = useVendors();
+interface VendorRow {
+  id: string;
+  name: string;
+  slug: string;
+  isActive?: boolean;
+  _counts?: { customers?: number; drivers?: number };
+  createdAt?: string;
+}
+
+export function VendorList({ onAddVendor }: { onAddVendor?: () => void } = {}) {
+  const { data, isLoading, error, refetch, page, setPage, limit, setLimit } = useVendors();
   const { mutate: deleteVendor } = useDeleteVendor();
   const { mutate: suspendVendor, isPending: isSuspending } = useSuspendVendor();
   const { mutate: unsuspendVendor, isPending: isUnsuspending } = useUnsuspendVendor();
@@ -19,96 +29,80 @@ export function VendorList() {
   const [suspendTarget, setSuspendTarget] = useState<{ id: string; name: string } | null>(null);
   const [wipeTarget, setWipeTarget] = useState<{ id: string; name: string; slug: string; isActive?: boolean } | null>(null);
 
-  const response = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
-  const vendors = (response?.data ?? []) as Array<{
-    id: string;
-    name: string;
-    slug: string;
-    isActive?: boolean;
-    _counts?: { customers?: number; drivers?: number }; // Note: backend uses _counts based on my update
-    createdAt?: string;
-  }>;
+  const response = data as { data?: unknown[]; meta?: { total: number } } | undefined;
+  const vendors = (response?.data ?? []) as VendorRow[];
   const total = response?.meta?.total ?? 0;
 
-  if (isLoading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
-      </div>
-    );
-  }
+  const columns: DataTableColumn<VendorRow>[] = [
+    { key: 'name', header: 'Vendor', className: 'font-medium', cell: (v) => v.name },
+    { key: 'slug', header: 'Slug', cell: (v) => <span className="text-muted-foreground font-mono text-xs">{v.slug}</span> },
+    { key: 'customers', header: 'Customers', cell: (v) => v._counts?.customers ?? '—' },
+    { key: 'drivers', header: 'Drivers', cell: (v) => v._counts?.drivers ?? '—' },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (v) => (
+        <Badge variant={v.isActive !== false ? 'success' : 'destructive'}>
+          {v.isActive !== false ? 'Active' : 'Suspended'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      cell: (v) => <span className="text-muted-foreground">{v.createdAt ? new Date(v.createdAt).toLocaleDateString() : '—'}</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-[170px]',
+      cell: (vendor) => (
+        <div className="flex items-center gap-1 justify-end">
+          <Button variant="ghost" size="icon" aria-label="Edit vendor" onClick={() => setEditTarget(vendor as unknown as Record<string, unknown>)}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          {vendor.isActive !== false ? (
+            <Button variant="ghost" size="icon" title="Suspend vendor" aria-label="Suspend vendor" disabled={isSuspending} onClick={() => setSuspendTarget({ id: vendor.id, name: vendor.name })}>
+              <Pause className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="icon" title="Reactivate vendor" aria-label="Reactivate vendor" disabled={isUnsuspending} onClick={() => unsuspendVendor(vendor.id)}>
+              <Play className="h-4 w-4" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" title="Wipe all vendor data" aria-label="Wipe vendor data" onClick={() => setWipeTarget(vendor)}>
+            <Eraser className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" aria-label="Delete vendor" onClick={() => setDeleteId(vendor.id)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <>
-      <div className="rounded-lg border bg-card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Vendor</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Slug</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Customers</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Drivers</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
-              <th className="px-4 py-3 w-[170px]" />
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {vendors.map((vendor) => (
-              <tr key={vendor.id} className="hover:bg-muted/30 transition-colors">
-                <td className="px-4 py-3 font-medium">{vendor.name}</td>
-                <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{vendor.slug}</td>
-                <td className="px-4 py-3">{vendor._counts?.customers ?? '—'}</td>
-                <td className="px-4 py-3">{vendor._counts?.drivers ?? '—'}</td>
-                <td className="px-4 py-3">
-                  <Badge variant={vendor.isActive !== false ? 'success' : 'destructive'}>
-                    {vendor.isActive !== false ? 'Active' : 'Suspended'}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {vendor.createdAt ? new Date(vendor.createdAt).toLocaleDateString() : '—'}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1 justify-end">
-                    <Button variant="ghost" size="icon" onClick={() => setEditTarget(vendor as Record<string, unknown>)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    {vendor.isActive !== false ? (
-                      <Button variant="ghost" size="icon" title="Suspend vendor" disabled={isSuspending} onClick={() => setSuspendTarget({ id: vendor.id, name: vendor.name })}>
-                        <Pause className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      <Button variant="ghost" size="icon" title="Reactivate vendor" disabled={isUnsuspending} onClick={() => unsuspendVendor(vendor.id)}>
-                        <Play className="h-4 w-4" />
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" title="Wipe all vendor data" onClick={() => setWipeTarget(vendor)}>
-                      <Eraser className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(vendor.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!vendors.length && (
-              <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                  No vendors found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <DataTablePagination
-        page={page}
-        limit={limit}
-        total={total}
-        onPageChange={setPage}
-        onLimitChange={setLimit}
+      <DataTable
+        columns={columns}
+        rows={vendors}
+        rowKey={(v) => v.id}
+        isLoading={isLoading}
+        error={error}
+        onRetry={() => {
+          void refetch();
+        }}
+        empty={{
+          title: 'No vendors yet',
+          description: 'Create your first vendor to get started.',
+          action: onAddVendor ? (
+            <Button onClick={onAddVendor}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Vendor
+            </Button>
+          ) : undefined,
+        }}
+        pagination={{ page, limit, total, onPageChange: setPage, onLimitChange: setLimit }}
       />
 
       <VendorForm

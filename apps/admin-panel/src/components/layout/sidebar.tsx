@@ -3,17 +3,15 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
-import { LayoutDashboard, Building2, Settings, Droplets } from 'lucide-react';
+import { Droplets } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-const navItems = [
-  { label: 'Overview',  href: '/',        icon: LayoutDashboard },
-  { label: 'Vendors',   href: '/vendors',  icon: Building2 },
-  { label: 'Settings',  href: '/settings', icon: Settings },
-];
+import { isNavActive, sortedNavItems } from '../../config/nav';
+import { useAuthStore } from '../../store/auth.store';
 
 export function Sidebar() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? '/';
+  const user = useAuthStore((s) => s.user);
+  const items = sortedNavItems();
 
   return (
     <aside className="w-64 border-r bg-card/30 backdrop-blur-xl flex flex-col shrink-0">
@@ -27,16 +25,17 @@ export function Sidebar() {
           </span>
         </Link>
       </div>
-      
+
       <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto scrollbar-none">
-        {navItems.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
-          const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
-          
+          const isActive = isNavActive(item, pathname);
+
           return (
             <Link
-              key={item.href}
+              key={item.id}
               href={item.href}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200',
                 isActive
@@ -64,8 +63,10 @@ export function Sidebar() {
       <div className="p-4 border-t bg-background/50">
         <div className="px-4 py-3 rounded-2xl bg-primary/5 border border-primary/10">
           <p className="text-[10px] uppercase tracking-widest font-bold text-primary">System Role</p>
-          <p className="text-sm font-black mt-0.5">Super Admin</p>
-          <p className="text-[11px] text-muted-foreground font-medium">Platform Controller</p>
+          <p className="text-sm font-black mt-0.5">{user?.name ?? 'Platform Admin'}</p>
+          <p className="text-[11px] text-muted-foreground font-medium">
+            {user?.role ? user.role.replace(/_/g, ' ') : 'Platform Controller'}
+          </p>
         </div>
       </div>
     </aside>
