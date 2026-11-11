@@ -47,11 +47,21 @@ describe('VendorController authorization', () => {
 });
 
 describe('AuthController exposes no signup/register route', () => {
-  it('has exactly login, me, forgot-password, reset-password, refresh, logout', () => {
+  it('has exactly login, me, forgot-password, reset-password, refresh, logout (+ the 2FA step endpoints)', () => {
     const paths = handlers(AuthController.prototype)
       .map((h) => Reflect.getMetadata('path', (AuthController.prototype as any)[h]))
       .filter((p) => p !== undefined)
       .sort();
-    expect(paths).toEqual(['forgot-password', 'login', 'logout', 'me', 'refresh', 'reset-password']);
+    expect(paths).toEqual([
+      '2fa/enroll/confirm',
+      '2fa/enroll/start',
+      '2fa/verify',
+      'forgot-password',
+      'login',
+      'logout',
+      'me',
+      'refresh',
+      'reset-password',
+    ]);
   });
 });

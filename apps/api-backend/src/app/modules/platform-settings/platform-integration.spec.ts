@@ -21,7 +21,7 @@ describe('defaults.customerGroupingEnabled applies to newly created vendors', ()
     const settings = { get: jest.fn(async () => defaultValue) };
     const svc = new VendorService(
       prisma,
-      {} as never,
+      { invalidatePlatformDashboard: jest.fn(async () => undefined) } as never,
       { log: jest.fn(async () => undefined) } as never,
       provisioning as never,
       settings as never,
