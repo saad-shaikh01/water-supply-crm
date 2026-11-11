@@ -39,7 +39,6 @@ export function AuditFilters({ values, vendors, facets, onChange, onClear, debou
     if (user === values.user) return;
     const t = setTimeout(() => onChange({ user }), debounceMs);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const hasFilters = Object.values(values).some(Boolean);

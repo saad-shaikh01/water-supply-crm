@@ -18,7 +18,6 @@ export function WhatsAppPageClient() {
     if (search === url.values.q) return;
     const t = setTimeout(() => url.setFilters({ q: search }), 400);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
   const params = compactParams({ status: url.values.status, q: url.values.q, page: url.page, limit: url.limit });
