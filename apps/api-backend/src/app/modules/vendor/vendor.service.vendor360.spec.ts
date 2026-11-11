@@ -30,7 +30,7 @@ function build(over: { prisma?: any } = {}) {
     dailySheet: { count: jest.fn(async () => 0), findFirst: jest.fn(async () => null) },
     ...over.prisma,
   };
-  const cache = { set: jest.fn(), del: jest.fn() };
+  const cache = { set: jest.fn(), del: jest.fn(), invalidatePlatformDashboard: jest.fn(async () => undefined) };
   const audit = { log: jest.fn(async () => undefined) };
   const auth = { revokeUserSessions: jest.fn(async () => undefined) };
   const provisioning = {};

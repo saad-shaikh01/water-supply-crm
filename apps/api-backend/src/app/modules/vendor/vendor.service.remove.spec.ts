@@ -28,7 +28,7 @@ function make(opts: { vendor?: unknown; blockerCounts?: Record<string, number>; 
   for (const m of (VendorService as any).DELETE_BLOCKER_MODELS as string[]) {
     prisma[m] = { count: jest.fn(async () => opts.blockerCounts?.[m] ?? 0) };
   }
-  const cache = { del: jest.fn(async () => undefined) };
+  const cache = { del: jest.fn(async () => undefined), invalidatePlatformDashboard: jest.fn(async () => undefined) };
   const audit = { log: jest.fn(async () => undefined) };
   const svc = new VendorService(prisma, cache as never, audit as never, {} as never);
   return { svc, prisma, cache, audit };
