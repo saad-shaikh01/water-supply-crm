@@ -25,14 +25,14 @@ describe('settings and maintenance', () => {
 
   it('2. a toggle persists after reload (feature flags list is empty until a flag is registered)', () => {
     cy.visit('/settings');
-    cy.get('[role="tab"]').contains('Feature flags').trigger('mousedown', { button: 0 });
+    cy.get('[role="tab"]').contains('Feature flags').click();
     cy.contains('No feature flags are defined yet.').should('be.visible');
-    cy.get('[role="tab"]').contains('Defaults').trigger('mousedown', { button: 0 });
+    cy.get('[role="tab"]').contains('Defaults').click();
     cy.contains(/newly created vendors only/i).should('be.visible');
     cy.get('[role="switch"][aria-label="Enable customer grouping"]').should('have.attr', 'aria-checked', 'false').click();
     cy.get('[role="switch"][aria-label="Enable customer grouping"]').should('have.attr', 'aria-checked', 'true');
     cy.reload();
-    cy.get('[role="tab"]').contains('Defaults').trigger('mousedown', { button: 0 });
+    cy.get('[role="tab"]').contains('Defaults').click();
     cy.get('[role="switch"][aria-label="Enable customer grouping"]').should('have.attr', 'aria-checked', 'true');
   });
 

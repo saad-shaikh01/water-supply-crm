@@ -127,7 +127,7 @@ describe('login: forced enrollment step', () => {
 
   it('QR -> confirm -> recovery codes; Continue is gated by the checkbox', async () => {
     const codes = ['AAAAA-AAAAA', 'BBBBB-BBBBB'];
-    api.enrollConfirm.mockResolvedValue(tokens({ recoveryCodes: codes }));
+    api.enrollConfirm.mockResolvedValue(tokens({ recoveryCodes: codes }) as never);
     const { container } = renderWithQuery(<LoginForm />);
     await signIn();
     await waitFor(() => expect(container.querySelector('img[src^="data:image/png"]')).not.toBeNull());

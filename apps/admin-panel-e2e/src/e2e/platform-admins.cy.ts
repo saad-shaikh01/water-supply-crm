@@ -48,9 +48,9 @@ describe('platform admins', () => {
         cy.visit('/settings/admins');
         cy.get('input[aria-label="Search administrators"]').type(victim.email);
         cy.get(`[aria-label="Deactivate ${victim.email}"]`).click();
-        cy.contains('button', /^Deactivate$/).should('be.disabled');
+        cy.get('[role="dialog"]').contains('button', /^Deactivate$/).should('be.disabled');
         cy.get('#admin-reason').type('e2e cleanup');
-        cy.contains('button', /^Deactivate$/).click();
+        cy.get('[role="dialog"]').contains('button', /^Deactivate$/).click();
         cy.contains('tr', victim.email).contains('Deactivated').should('be.visible');
 
         cy.apiAs(session.access_token, 'GET', '/auth/me').its('status').should('eq', 401);
@@ -100,7 +100,7 @@ describe('platform admins', () => {
     cy.visit('/settings/admins');
     cy.get('[aria-label="Deactivate third.stub@e2e.test"]').click();
     cy.get('#admin-reason').type('stubbed 409 check');
-    cy.contains('button', /^Deactivate$/).click();
+    cy.get('[role="dialog"]').contains('button', /^Deactivate$/).click();
     cy.wait('@deactivate');
     cy.contains(/last active platform administrator/i).should('be.visible');
   });
@@ -126,7 +126,7 @@ describe('platform admins', () => {
       cy.contains('tr', target.email).find('[data-testid="admin-2fa-badge"]').should('have.text', '2FA on');
       cy.get(`[aria-label="Reset 2FA ${target.email}"]`).click();
       cy.get('#admin-reason').type('lost device (e2e)');
-      cy.contains('button', /^Reset 2FA$/).click();
+      cy.get('[role="dialog"]').contains('button', /^Reset 2FA$/).click();
       cy.contains('tr', target.email).find('[data-testid="admin-2fa-badge"]').should('have.text', '2FA off');
 
       cy.task('resetThrottle', null, { log: false });

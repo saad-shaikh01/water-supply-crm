@@ -47,9 +47,10 @@ describe('auth', () => {
     cy.contains(/invalid credentials/i).should('be.visible');
     for (let i = 0; i < 3; i++) attempt(); // attempts 2-4
     attempt(); // 5th failed attempt locks the account
-    cy.contains(/too many failed login attempts|locked/i).should('be.visible');
-    attempt(); // 6th attempt is still locked
-    cy.contains(/locked/i).should('be.visible');
+    // Phase 5: a lock answers with the same generic message as a wrong password (no account-exists leak)
+    cy.contains(/invalid credentials/i).should('be.visible');
+    attempt(); // 6th attempt is still refused
+    cy.contains(/invalid credentials/i).should('be.visible');
     cy.getCookie('auth_token').should('not.exist');
   });
 
