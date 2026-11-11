@@ -6,6 +6,8 @@ export const CACHE_KEYS = {
   USERS: 'users',
   VANS: 'vans',
   DASHBOARD: 'dashboard',
+  // Platform-wide (not per-vendor) key; used verbatim, never wrapped in vendor:{id}:.
+  PLATFORM_DASHBOARD_OVERVIEW: 'platform:dashboard:overview',
 } as const;
 
 export const CACHE_TTLS = {

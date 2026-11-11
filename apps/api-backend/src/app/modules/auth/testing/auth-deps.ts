@@ -5,7 +5,7 @@ export function authExtraDeps(overrides: Partial<{ audit: unknown; sessions: unk
   return [
     overrides.audit ?? { log: noop },
     overrides.sessions ?? {
-      create: noop,
+      create: async () => ({ id: 'sess-1' }),
       touch: noop,
       assertActive: noop,
       revoke: noop,

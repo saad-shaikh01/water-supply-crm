@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -12,6 +12,13 @@ export class GoLiveDto {
   @IsOptional()
   @IsBoolean()
   force?: boolean;
+}
+
+export class GoOfflineDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  reason?: string;
 }
 
 /** The signed-in vendor's own onboarding checklist. */
@@ -56,7 +63,8 @@ export class PlatformOnboardingController {
   }
 
   @Post('vendors/:vendorId/go-offline')
-  goOffline(@CurrentUser() user: AuthUser, @Param('vendorId') vendorId: string) {
-    return this.readiness.goOffline(vendorId, user);
+  @Throttle({ short: { ttl: 2000, limit: 2 }, medium: { ttl: 60000, limit: 10 } })
+  goOffline(@CurrentUser() user: AuthUser, @Param('vendorId') vendorId: string, @Body() dto: GoOfflineDto) {
+    return this.readiness.goOffline(vendorId, user, dto?.reason);
   }
 }

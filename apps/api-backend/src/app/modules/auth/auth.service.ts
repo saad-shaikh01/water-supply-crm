@@ -32,7 +32,7 @@ export interface RequestContext {
 interface RefreshValue {
   userId: string;
   sessionId?: string;
-  /** epoch seconds the token was issued (checked against the revoked-before marker). */
+  /** epoch MILLISECONDS the token was issued (checked against the revoked-before marker). */
   iat?: number;
 }
 
@@ -310,7 +310,7 @@ export class AuthService {
 
     // Generate opaque refresh token and store in Redis (7 days)
     const refreshToken = randomUUID();
-    const refreshValue: RefreshValue = { userId: user.id, iat: Math.floor(Date.now() / 1000) };
+    const refreshValue: RefreshValue = { userId: user.id, iat: Date.now() };
     if (sessionId) refreshValue.sessionId = sessionId;
     await this.cache.set(REFRESH_KEY(refreshToken), refreshValue, REFRESH_TTL_MS);
 

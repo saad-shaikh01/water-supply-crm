@@ -119,7 +119,7 @@ describe('AuthSessionService', () => {
     await svc.revokeAllUserTokens('u1', 'PASSWORD_RESET');
     expect(await svc.countActive('u1')).toBe(0);
     const marker = f.cache.store.get(userRevokedBeforeKey('u1')) as number;
-    expect(marker).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+    expect(marker).toBeLessThanOrEqual(Date.now());
     expect(await svc.userTokensRevokedSince('u1', marker - 1)).toBe(true);
     expect(await svc.userTokensRevokedSince('u1', marker)).toBe(false);
     expect(await svc.userTokensRevokedSince('u1', undefined)).toBe(true);

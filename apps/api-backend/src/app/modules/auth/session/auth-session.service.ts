@@ -137,12 +137,12 @@ export class AuthSessionService {
    */
   async revokeAllUserTokens(userId: string, reason: SessionRevokeReason, revokedById?: string): Promise<void> {
     await this.revokeAll(userId, { reason, revokedById });
-    await this.cache.set(userRevokedBeforeKey(userId), Math.floor(Date.now() / 1000), SESSION_TTL_MS);
+    await this.cache.set(userRevokedBeforeKey(userId), Date.now(), SESSION_TTL_MS);
   }
 
-  async userTokensRevokedSince(userId: string, issuedAtSec: number | undefined): Promise<boolean> {
+  async userTokensRevokedSince(userId: string, issuedAtMs: number | undefined): Promise<boolean> {
     const marker = await this.cache.get<number>(userRevokedBeforeKey(userId));
     if (!marker) return false;
-    return issuedAtSec === undefined || issuedAtSec < marker;
+    return issuedAtMs === undefined || issuedAtMs < marker;
   }
 }

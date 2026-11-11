@@ -1,0 +1,11 @@
+{
+  "vendors": { "total": 12, "active": 9, "suspended": 3, "newThisMonth": 2 },
+  "customers": { "total": 3456 },
+  "drivers": { "totalActive": 47 },
+  "revenue": { "allTime": 9876543, "thisMonth": 123456, "lastMonth": 100000, "growthPercent": 23.5 },
+  "deliveries": { "thisMonth": 8910 },
+  "topVendors": [
+    { "vendor": { "id": "v1", "name": "Aqua Alpha", "slug": "aqua-alpha" }, "totalRevenue": 500000 },
+    { "vendor": { "id": "v2", "name": "Blue Beta", "slug": "blue-beta" }, "totalRevenue": 250000 }
+  ]
+}

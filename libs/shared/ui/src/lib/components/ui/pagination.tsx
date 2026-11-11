@@ -75,6 +75,7 @@ export function DataTablePagination({
               variant="outline"
               size="icon"
               className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
+              aria-label="First page"
               onClick={() => onPageChange(1)}
               disabled={page <= 1}
             >
@@ -84,6 +85,7 @@ export function DataTablePagination({
               variant="outline"
               size="icon"
               className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
+              aria-label="Previous page"
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1}
             >
@@ -104,6 +106,7 @@ export function DataTablePagination({
               variant="outline"
               size="icon"
               className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
+              aria-label="Next page"
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages}
             >
@@ -113,6 +116,7 @@ export function DataTablePagination({
               variant="outline"
               size="icon"
               className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
+              aria-label="Last page"
               onClick={() => onPageChange(totalPages)}
               disabled={page >= totalPages}
             >

@@ -66,7 +66,8 @@ describeDb('Tenant security phase 2B (real Postgres)', () => {
     customerId: null,
   });
   const makeVendor = async (tag: string) => {
-    const v = await vendors.create({ name: `${tag} ${RUN}`, slug: `p2b-${tag}-${RUN}`, adminEmail: `admin-${tag}-${RUN}@t.test`, adminPassword: PASSWORD, adminName: `Admin ${tag}` });
+    const v = (await vendors.create({ name: `${tag} ${RUN}`, slug: `p2b-${tag}-${RUN}`, adminEmail: `admin-${tag}-${RUN}@t.test`, adminPassword: PASSWORD, adminName: `Admin ${tag}` })).vendor;
+
     vendorIds.push(v.id);
     const admin = asUser(await prisma.user.findUniqueOrThrow({ where: { email: `admin-${tag}-${RUN}@t.test` } }));
     return { v, admin };

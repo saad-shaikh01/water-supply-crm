@@ -1953,6 +1953,10 @@ model AuditLog {
 
   @@index([vendorId, createdAt])
   @@index([entity, entityId])
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([entity, createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

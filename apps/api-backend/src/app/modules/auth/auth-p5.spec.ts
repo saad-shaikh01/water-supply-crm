@@ -323,7 +323,7 @@ describe('JwtStrategy.validate (phase 5 additions)', () => {
 
   it('rejects tokens issued before the user-wide revoke marker, accepts later ones', async () => {
     const cache = makeCache();
-    cache.store.set(userRevokedBeforeKey('u1'), 1000);
+    cache.store.set(userRevokedBeforeKey('u1'), 1_000_000);
     const strategy = new JwtStrategy(cache as never);
     await expect(strategy.validate({ ...base, iat: 999 })).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(strategy.validate({ ...base, iat: 1000 })).resolves.toMatchObject({ userId: 'u1' });

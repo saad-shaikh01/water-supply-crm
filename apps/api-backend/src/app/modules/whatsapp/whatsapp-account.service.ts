@@ -270,6 +270,117 @@ export class WhatsAppAccountService implements OnModuleInit {
     }));
   }
 
+  // ── Platform admin (P3 observability): list / assign / unassign / verify by account id ──────────
+
+  /** Explicit allow-list serializer — never spreads the row, so token columns cannot leak. */
+  private serializePlatformAccount(a: any) {
+    return {
+      id: a.id,
+      label: a.label,
+      wabaId: a.wabaId ?? null,
+      phoneNumberId: a.phoneNumberId ?? null,
+      displayNumber: a.displayNumber ?? null,
+      verifiedName: a.verifiedName ?? null,
+      status: a.status,
+      qualityRating: a.qualityRating ?? null,
+      lastHealthCheckAt: a.lastHealthCheckAt ?? null,
+      lastHealthError: a.lastHealthError ?? null,
+      hasToken: !!a.tokenCipher,
+      templateSuffix: a.templateSuffix ?? null,
+      templatesSyncedAt: a.templatesSyncedAt ?? null,
+      vendorsCount: (a.vendors ?? []).length,
+      vendors: (a.vendors ?? []).map((v: any) => ({ id: v.id, name: v.name, isActive: v.isActive })),
+    };
+  }
+
+  private static readonly PLATFORM_VENDORS_INCLUDE = { vendors: { select: { id: true, name: true, isActive: true }, orderBy: { name: 'asc' as const } } };
+
+  async listAccountsDetailed(query: { status?: WhatsAppAccountStatus; q?: string; page?: number; limit?: number }) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where: Record<string, any> = {};
+    if (query.status) where.status = query.status;
+    if (query.q) {
+      const contains = { contains: query.q, mode: 'insensitive' as const };
+      where.OR = [{ label: contains }, { displayNumber: contains }, { verifiedName: contains }, { phoneNumberId: contains }];
+    }
+    const [rows, total] = await Promise.all([
+      this.prisma.whatsAppAccount.findMany({ where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit, include: WhatsAppAccountService.PLATFORM_VENDORS_INCLUDE }),
+      this.prisma.whatsAppAccount.count({ where }),
+    ]);
+    return { data: rows.map((r) => this.serializePlatformAccount(r)), meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
+
+  /** Vendors with no WhatsApp account — id + name only (max 50). */
+  async assignableVendors(q?: string) {
+    return this.prisma.vendor.findMany({
+      where: { whatsappAccountId: null, ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}) },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+      take: 50,
+    });
+  }
+
+  private async loadPlatformAccount(accountId: string) {
+    const a = await this.prisma.whatsAppAccount.findUnique({ where: { id: accountId }, include: WhatsAppAccountService.PLATFORM_VENDORS_INCLUDE });
+    if (!a) throw new NotFoundException('WhatsApp account not found');
+    return a;
+  }
+
+  async assignVendor(accountId: string, vendorId: string, opts: { replace?: boolean }, actor: AuthUser) {
+    const account = await this.prisma.whatsAppAccount.findUnique({ where: { id: accountId } });
+    if (!account) throw new NotFoundException('WhatsApp account not found');
+    const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true, whatsappAccountId: true } });
+    if (!vendor) throw new NotFoundException('Vendor not found');
+    if (vendor.whatsappAccountId !== accountId) {
+      if (vendor.whatsappAccountId && !opts.replace) {
+        throw new ConflictException({ statusCode: 409, code: 'VENDOR_HAS_ACCOUNT', message: 'This vendor already has a different WhatsApp account. Pass replace=true to switch it.' });
+      }
+      await this.prisma.vendor.update({ where: { id: vendorId }, data: { whatsappAccountId: accountId } });
+      this.invalidate(vendorId);
+      await this.audit.log({
+        vendorId,
+        userId: actor.userId,
+        userName: actor.name,
+        action: 'ASSIGN',
+        entity: 'WhatsAppAccount',
+        entityId: accountId,
+        changes: { before: { accountId: vendor.whatsappAccountId }, after: { accountId } },
+      });
+    }
+    return this.serializePlatformAccount(await this.loadPlatformAccount(accountId));
+  }
+
+  /** Non-destructive: detaches the vendor only; the account row (and its stored token) is kept. */
+  async unassignVendor(accountId: string, vendorId: string, actor: AuthUser) {
+    const account = await this.prisma.whatsAppAccount.findUnique({ where: { id: accountId } });
+    if (!account) throw new NotFoundException('WhatsApp account not found');
+    const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true, whatsappAccountId: true } });
+    if (!vendor || vendor.whatsappAccountId !== accountId) throw new BadRequestException('This vendor is not assigned to that WhatsApp account.');
+    await this.prisma.vendor.update({ where: { id: vendorId }, data: { whatsappAccountId: null } });
+    this.invalidate(vendorId);
+    await this.audit.log({
+      vendorId,
+      userId: actor.userId,
+      userName: actor.name,
+      action: 'UNASSIGN',
+      entity: 'WhatsAppAccount',
+      entityId: accountId,
+      changes: { before: { accountId }, after: { accountId: null } },
+    });
+    return this.serializePlatformAccount(await this.loadPlatformAccount(accountId));
+  }
+
+  /** Re-check one account with Meta right now (a transient provider error keeps the status). */
+  async verifyAccountById(accountId: string, actor: AuthUser) {
+    const account = await this.prisma.whatsAppAccount.findUnique({ where: { id: accountId } });
+    if (!account) throw new NotFoundException('WhatsApp account not found');
+    await this.verifyAccount(account);
+    this.invalidate();
+    await this.audit.log({ userId: actor.userId, userName: actor.name, action: 'VERIFY', entity: 'WhatsAppAccount', entityId: accountId });
+    return this.serializePlatformAccount(await this.loadPlatformAccount(accountId));
+  }
+
   // ── Write ───────────────────────────────────────────────────────────────────
 
   /**

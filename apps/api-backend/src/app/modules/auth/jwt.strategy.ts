@@ -50,7 +50,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // "Log out everywhere" marker (AuthService.revokeUserSessions): tokens issued before it are void.
     if (payload.sub) {
       const revokedBefore = await this.cache.get<number>(userRevokedBeforeKey(payload.sub));
-      if (revokedBefore && (typeof payload.iat !== 'number' || payload.iat < revokedBefore)) {
+      if (revokedBefore && (typeof payload.iat !== 'number' || payload.iat < Math.floor(revokedBefore / 1000))) {
         throw new UnauthorizedException('Session has been revoked');
       }
     }

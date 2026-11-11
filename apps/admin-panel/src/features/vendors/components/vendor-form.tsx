@@ -4,107 +4,80 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, Button, Input, Label } from '@water-supply-crm/ui';
-import { createVendorSchema, editVendorSchema, type CreateVendorInput, type EditVendorInput } from '../schemas';
-import { useCreateVendor, useUpdateVendor } from '../hooks/use-vendors';
+import { editVendorSchema, type EditVendorInput } from '../schemas';
+import { useUpdateVendor } from '../hooks/use-vendors';
 
 interface VendorFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  vendor?: Record<string, unknown> | null;
+  vendor?: { id?: unknown; name?: unknown; slug?: unknown; address?: unknown; raastId?: unknown } | null;
 }
 
+/**
+ * Edit-vendor sheet. Creating a vendor is the wizard's job (see wizard/create-vendor-wizard).
+ * The slug is shown read-only and is never part of the PATCH body (the API has no slug on UpdateVendorDto).
+ */
 export function VendorForm({ open, onOpenChange, vendor }: VendorFormProps) {
-  const isEdit = !!vendor?.id;
-  const { mutate: create, isPending: isCreating } = useCreateVendor();
-  const { mutate: update, isPending: isUpdating } = useUpdateVendor();
-  const isPending = isCreating || isUpdating;
+  const { mutate: update, isPending } = useUpdateVendor();
 
-  const createForm = useForm<CreateVendorInput>({
-    resolver: zodResolver(createVendorSchema),
-    defaultValues: { name: '', slug: '', adminName: '', adminEmail: '', adminPassword: '' },
-  });
-
-  const editForm = useForm<EditVendorInput>({
+  const form = useForm<EditVendorInput>({
     resolver: zodResolver(editVendorSchema),
-    defaultValues: { name: '', slug: '' },
+    defaultValues: { name: '', address: '', raastId: '' },
   });
 
   useEffect(() => {
-    if (open && isEdit && vendor) {
-      editForm.reset({ name: String(vendor.name ?? ''), slug: String(vendor.slug ?? '') });
+    if (open && vendor) {
+      form.reset({ name: String(vendor.name ?? ''), address: String(vendor.address ?? ''), raastId: String(vendor.raastId ?? '') });
     } else if (!open) {
-      createForm.reset();
-      editForm.reset();
+      form.reset();
     }
-  }, [open, isEdit, vendor, createForm, editForm]);
+  }, [open, vendor, form]);
 
-  const onCreateSubmit = (data: CreateVendorInput) => {
-    create(data as unknown as Record<string, unknown>, { onSuccess: () => onOpenChange(false) });
-  };
-
-  const onEditSubmit = (data: EditVendorInput) => {
-    update({ id: String(vendor!.id), data: data as unknown as Record<string, unknown> }, { onSuccess: () => onOpenChange(false) });
+  const onSubmit = (data: EditVendorInput) => {
+    // name always; optional fields only when they changed. Never the slug.
+    const payload: Record<string, string> = { name: data.name };
+    if ((data.address ?? '') !== String(vendor?.address ?? '')) payload.address = data.address ?? '';
+    if ((data.raastId ?? '') !== String(vendor?.raastId ?? '')) payload.raastId = data.raastId ?? '';
+    update({ id: String(vendor?.id), data: payload }, { onSuccess: () => onOpenChange(false) });
   };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-[420px] sm:w-[540px] overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{isEdit ? 'Edit Vendor' : 'Add Vendor'}</SheetTitle>
+          <SheetTitle>Edit Vendor</SheetTitle>
         </SheetHeader>
 
-        {isEdit ? (
-          <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4 mt-6">
-            <div className="space-y-2">
-              <Label>Vendor Name</Label>
-              <Input placeholder="Acme Water Co." {...editForm.register('name')} />
-              {editForm.formState.errors.name && <p className="text-sm text-destructive">{editForm.formState.errors.name.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>Slug</Label>
-              <Input placeholder="acme-water" {...editForm.register('slug')} />
-              {editForm.formState.errors.slug && <p className="text-sm text-destructive">{editForm.formState.errors.slug.message}</p>}
-            </div>
-            <SheetFooter className="pt-4">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button type="submit" disabled={isPending}>{isPending ? 'Saving...' : 'Update'}</Button>
-            </SheetFooter>
-          </form>
-        ) : (
-          <form onSubmit={createForm.handleSubmit(onCreateSubmit)} className="space-y-4 mt-6">
-            <p className="text-sm text-muted-foreground pb-2 border-b">Vendor Details</p>
-            <div className="space-y-2">
-              <Label>Vendor Name</Label>
-              <Input placeholder="Acme Water Co." {...createForm.register('name')} />
-              {createForm.formState.errors.name && <p className="text-sm text-destructive">{createForm.formState.errors.name.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>Slug</Label>
-              <Input placeholder="acme-water" {...createForm.register('slug')} />
-              {createForm.formState.errors.slug && <p className="text-sm text-destructive">{createForm.formState.errors.slug.message}</p>}
-            </div>
-            <p className="text-sm text-muted-foreground pb-2 border-b pt-2">Admin Account</p>
-            <div className="space-y-2">
-              <Label>Admin Name</Label>
-              <Input placeholder="John Smith" {...createForm.register('adminName')} />
-              {createForm.formState.errors.adminName && <p className="text-sm text-destructive">{createForm.formState.errors.adminName.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>Admin Email</Label>
-              <Input type="email" placeholder="admin@acme.com" {...createForm.register('adminEmail')} />
-              {createForm.formState.errors.adminEmail && <p className="text-sm text-destructive">{createForm.formState.errors.adminEmail.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>Admin Password</Label>
-              <Input type="password" placeholder="Min 8 characters" {...createForm.register('adminPassword')} />
-              {createForm.formState.errors.adminPassword && <p className="text-sm text-destructive">{createForm.formState.errors.adminPassword.message}</p>}
-            </div>
-            <SheetFooter className="pt-4">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button type="submit" disabled={isPending}>{isPending ? 'Creating...' : 'Create Vendor'}</Button>
-            </SheetFooter>
-          </form>
-        )}
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-6">
+          <div className="space-y-2">
+            <Label htmlFor="vendor-name">Vendor Name</Label>
+            <Input id="vendor-name" placeholder="Acme Water Co." {...form.register('name')} />
+            {form.formState.errors.name && <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="vendor-slug">Slug</Label>
+            <Input id="vendor-slug" value={String(vendor?.slug ?? '')} readOnly aria-readonly="true" className="bg-muted font-mono" />
+            <p className="text-xs text-muted-foreground">The slug is the vendor&apos;s permanent identifier and cannot be changed.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="vendor-address">Address</Label>
+            <Input id="vendor-address" {...form.register('address')} />
+            {form.formState.errors.address && <p className="text-sm text-destructive">{form.formState.errors.address.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="vendor-raast">Raast ID</Label>
+            <Input id="vendor-raast" {...form.register('raastId')} />
+            {form.formState.errors.raastId && <p className="text-sm text-destructive">{form.formState.errors.raastId.message}</p>}
+          </div>
+          <SheetFooter className="pt-4">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isPending}>
+              {isPending ? 'Saving...' : 'Update'}
+            </Button>
+          </SheetFooter>
+        </form>
       </SheetContent>
     </Sheet>
   );
