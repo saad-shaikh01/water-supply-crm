@@ -320,6 +320,7 @@ describe('Vendor 360', () => {
     // mixed: bulk3 (active) + bulkpre (already suspended)
     cy.get(`input[aria-label="Select ${fx['bulk3'].name}"]`).check();
     cy.get(`input[aria-label="Select ${fx['bulkpre'].name}"]`).check();
+    cy.task('resetThrottle', null, { log: false }); // bulk/suspend is limited to 1 req/s: the first bulk call above can be <1s old
     cy.get('[role="toolbar"]').contains('button', 'Suspend').click();
     cy.get('[role="dialog"]').within(() => {
       cy.get('#typed-confirm-input').type('SUSPEND 2');
