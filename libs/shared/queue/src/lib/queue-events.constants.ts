@@ -21,4 +21,6 @@ export const JOB_NAMES = {
   VENDOR_IMPORT_REVERT: 'vendor-import-revert',
   WHATSAPP_ACCOUNT_HEALTH: 'whatsapp-account-health',
   RUN_BILLING_SWEEP: 'run-billing-sweep',
+  DISPATCH_ANNOUNCEMENT: 'dispatch-announcement',
+  ANNOUNCEMENT_DUE_SCAN: 'announcement-due-scan',
 } as const;
