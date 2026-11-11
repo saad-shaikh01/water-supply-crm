@@ -14,4 +14,6 @@ export interface AuthUser {
   role: UserRoleType;
   vendorId: string;
   customerId: string | null;
+  /** Session id (sid claim): only present on SUPER_ADMIN tokens. */
+  sessionId?: string;
 }
