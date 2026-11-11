@@ -35,8 +35,15 @@ export class EmailService implements OnModuleInit {
     return this.enabled;
   }
 
-  async sendPasswordReset(to: string, name: string, resetToken: string): Promise<void> {
-    const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:3000';
+  async sendPasswordReset(
+    to: string,
+    name: string,
+    resetToken: string,
+    opts: { admin?: boolean } = {},
+  ): Promise<void> {
+    // Platform administrators reset on the admin panel (route /auth/reset-password).
+    const adminUrl = opts.admin ? (process.env["ADMIN_FRONTEND_URL"] ?? "").replace(/\/+$/, "") : "";
+    const frontendUrl = adminUrl ? `${adminUrl}/auth` : process.env['FRONTEND_URL'] || 'http://localhost:3000';
     const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
     const from = process.env['MAIL_FROM'] || `"Water Supply CRM" <${process.env['MAIL_USER']}>`;
 

@@ -17,6 +17,8 @@ import { AuthSecurityPolicyService } from './security-policy.service';
 
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 const REFRESH_KEY = (token: string) => `auth:refresh:${token}`;
+const resetJtiKey = (jti: string) => `auth:reset-jti:${jti}`;
+const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 /** Same message for "locked" and "wrong password" so a lock never confirms the account exists. */
 const GENERIC_LOGIN_ERROR = 'Invalid credentials';
 /** Per-IP failure budget is this many times the per-identifier budget (shared NATs / offices). */
@@ -345,21 +347,29 @@ export class AuthService {
       return;
     }
 
+    // Single-use: the jti is stored server-side and deleted when the token is consumed.
+    const jti = randomUUID();
+    await this.cache.set(resetJtiKey(jti), user.id, RESET_TOKEN_TTL_MS);
     const token = this.jwtService.sign(
-      { sub: user.id, email: user.email, type: 'password-reset' },
+      { sub: user.id, email: user.email, type: 'password-reset', jti },
       { expiresIn: '15m' },
     );
 
     // Send the reset email (non-blocking — failure doesn't crash the request)
-    await this.emailService.sendPasswordReset(user.email, user.name ?? 'User', token);
+    await this.emailService.sendPasswordReset(user.email, user.name ?? 'User', token, { admin: user.role === 'SUPER_ADMIN' });
   }
 
-  async verifyResetToken(token: string): Promise<{ userId: string }> {
+  async verifyResetToken(token: string, consume = false): Promise<{ userId: string }> {
     try {
       const payload = this.jwtService.verify(token);
       if (payload.type !== 'password-reset') {
         throw new UnauthorizedException('Invalid reset token');
       }
+      // Tokens without a live jti are unusable (already consumed, expired or pre-dating single-use).
+      if (!payload.jti || (await this.cache.get(resetJtiKey(payload.jti))) !== payload.sub) {
+        throw new UnauthorizedException('Invalid or expired reset token');
+      }
+      if (consume) await this.cache.del(resetJtiKey(payload.jti));
       return { userId: payload.sub };
     } catch {
       throw new UnauthorizedException('Invalid or expired reset token');
@@ -367,7 +377,7 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
-    const { userId } = await this.verifyResetToken(token);
+    const { userId } = await this.verifyResetToken(token, true);
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.userService.updatePassword(userId, hashedPassword);
     // A password reset must kill sessions opened with the old credentials.

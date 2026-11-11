@@ -11,6 +11,7 @@ import { AuditModule } from '../audit/audit.module';
 import { AuthSessionService } from './session/auth-session.service';
 import { TwoFactorService } from './two-factor/two-factor.service';
 import { AuthSecurityPolicyService } from './security-policy.service';
+import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
 import { SecurityController } from './security.controller';
 
 @Module({
@@ -18,6 +19,7 @@ import { SecurityController } from './security.controller';
     UserModule,
     AuthzModule,
     AuditModule,
+    PlatformSettingsModule,
     PassportModule,
     JwtModule.register({
       secret: getJwtSecret(),

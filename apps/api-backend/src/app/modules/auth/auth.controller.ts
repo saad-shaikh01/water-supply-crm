@@ -25,6 +25,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import { PermissionService } from '../authz/permission.service';
 
 @Controller('auth')
@@ -32,6 +33,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private permissionService: PermissionService,
+    private platformSettings: PlatformSettingsService,
   ) {}
 
   @Post('login')
@@ -51,6 +53,8 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    // Maintenance: credentials were verified; only platform admins may proceed (others see the notice).
+    if (user.role !== 'SUPER_ADMIN') await this.platformSettings.assertNotInMaintenance();
     return this.authService.login(user, ctxOf(req));
   }
 
