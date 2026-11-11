@@ -14,4 +14,11 @@ export interface AuthUser {
   role: UserRoleType;
   vendorId: string;
   customerId: string | null;
+  /** Present only for SUPER_ADMIN impersonation sessions (Phase 4 / track B). */
+  impersonation?: {
+    sessionId: string;
+    actorId: string;
+    actorName: string;
+    mode: 'READ_ONLY' | 'SUPPORT';
+  };
 }

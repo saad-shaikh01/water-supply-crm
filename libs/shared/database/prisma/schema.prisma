@@ -343,6 +343,9 @@ model Vendor {
   warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
   balanceReminderConfig      BalanceReminderConfig?
   branding                   VendorBranding?
+  subscription               VendorSubscription?
+  invoices                   Invoice[]
+  announcementTargets        AnnouncementVendor[]
   whatsappAccountId          String?
   // Set when the vendor admin presses "Go live" on the onboarding checklist. Until then (and while the
   // gate enforces) no customer-facing WhatsApp leaves for this vendor. Every vendor that existed when
@@ -350,9 +353,9 @@ model Vendor {
   goLiveAt                   DateTime?
   // Optional customer grouping (Group -> optional SubGroup). OFF by default: when false the
   // vendor sees no group UI and the API ignores group fields. Turning it OFF never deletes data.
-  customerGroupingEnabled    Boolean          @default(false)
+  customerGroupingEnabled    Boolean                     @default(false)
   customerGroups             CustomerGroup[]
-  whatsappAccount            WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
+  whatsappAccount            WhatsAppAccount?            @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures     SalaryStructure[]
@@ -1966,6 +1969,7 @@ model InAppNotification {
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
+  @@index([type, entityId]) // announcement read-stats groupBy
 }
 
 model NotificationPreference {
@@ -3274,10 +3278,10 @@ model PayrollEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ledgerEntries StaffLedgerEntry[]
-  snapshots     PayrollSnapshot[]
-  settlements   Settlement[]
-  auditLogs     PayrollEntryAuditLog[]
+  ledgerEntries  StaffLedgerEntry[]
+  snapshots      PayrollSnapshot[]
+  settlements    Settlement[]
+  auditLogs      PayrollEntryAuditLog[]
   slipDeliveries PayrollSlipDelivery[]
 
   @@unique([periodId, userId])
@@ -4892,4 +4896,214 @@ model ImportMappingProfile {
   @@unique([vendorId, entity, name])
   @@index([vendorId, entity, fingerprint])
   @@index([isSystem, entity, fingerprint])
+}
+
+// ───────────── Phase 4: Plans / Subscriptions / Billing ─────────────
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+}
+
+enum InvoicePaymentMethod {
+  CASH
+  BANK_TRANSFER
+  RAAST
+  CHEQUE
+  OTHER
+}
+
+model Plan {
+  id           String          @id @default(uuid())
+  name         String          @unique
+  description  String?
+  price        Decimal         @db.Decimal(12, 2)
+  currency     String          @default("PKR")
+  interval     BillingInterval @default(MONTHLY)
+  trialDays    Int             @default(0)
+  // null = unlimited
+  maxCustomers Int?
+  maxDrivers   Int?
+  maxVans      Int?
+  features     Json? // free-form flags, e.g. { "whatsapp": true }
+  isActive     Boolean         @default(true) // inactive = cannot be newly assigned; existing subs unaffected
+  sortOrder    Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  subscriptions VendorSubscription[]
+}
+
+model VendorSubscription {
+  id                   String             @id @default(uuid())
+  vendorId             String             @unique // exactly one current subscription per vendor
+  vendor               Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  planId               String
+  plan                 Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  status               SubscriptionStatus @default(TRIAL)
+  trialEndsAt          DateTime?
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelledAt          DateTime?
+  cancelReason         String?
+  // per-vendor overrides (null = use plan value); lets support grant a one-off bump
+  overrideMaxCustomers Int?
+  overrideMaxDrivers   Int?
+  overrideMaxVans      Int?
+  // true only when billing auto-suspended the vendor, so a payment can auto-unsuspend
+  suspendedByBilling   Boolean            @default(false)
+  pastDueSince         DateTime?
+  notes                String?
+  createdById          String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  invoices Invoice[]
+
+  @@index([status, currentPeriodEnd])
+  @@index([planId])
+}
+
+model Invoice {
+  id             String              @id @default(uuid())
+  number         String              @unique // INV-YYYY-000123 from sequence admin_p4_invoice_seq
+  vendorId       String
+  vendor         Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   VendorSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  status         InvoiceStatus       @default(OPEN)
+  description    String?
+  amount         Decimal             @db.Decimal(12, 2)
+  currency       String              @default("PKR")
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  issuedAt       DateTime            @default(now())
+  dueAt          DateTime
+  paidAt         DateTime?
+  voidedAt       DateTime?
+  voidReason     String?
+  createdById    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  payments InvoicePayment[]
+
+  // idempotent auto-renewal generation: one invoice per subscription period
+  @@unique([subscriptionId, periodStart])
+  @@index([vendorId, status])
+  @@index([status, dueAt])
+}
+
+model InvoicePayment {
+  id           String               @id @default(uuid())
+  invoiceId    String
+  invoice      Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  vendorId     String // denormalised for reporting/filtering
+  amount       Decimal              @db.Decimal(12, 2)
+  method       InvoicePaymentMethod
+  reference    String? // bank txn id / receipt no.
+  externalRef  String? // reserved for a future gateway
+  paidOn       DateTime
+  recordedById String?
+  notes        String?
+  createdAt    DateTime             @default(now())
+
+  @@index([invoiceId])
+  @@index([vendorId, paidOn])
+}
+
+// ───────────── Phase 4: Impersonation ─────────────
+enum ImpersonationMode {
+  READ_ONLY
+  SUPPORT
+}
+
+model ImpersonationSession {
+  id            String            @id @default(uuid())
+  actorId       String // SUPER_ADMIN user id (no FK: audit must survive user deletion)
+  actorName     String
+  vendorId      String
+  targetUserId  String
+  targetName    String
+  mode          ImpersonationMode @default(READ_ONLY)
+  reason        String // mandatory, min 10 chars
+  ip            String?
+  userAgent     String?
+  startedAt     DateTime          @default(now())
+  expiresAt     DateTime
+  endedAt       DateTime?
+  endedReason   String? // EXIT | EXPIRED | REVOKED | SUSPENDED | SUPERSEDED
+  actionCount   Int               @default(0)
+  handoffUsedAt DateTime? // one-time code consumed
+
+  @@index([vendorId, startedAt])
+  @@index([actorId, startedAt])
+  @@index([endedAt, expiresAt])
+}
+
+// ───────────── Phase 4: Announcements ─────────────
+enum AnnouncementStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  CANCELLED
+  FAILED
+}
+
+enum AnnouncementAudience {
+  ALL_VENDORS
+  SELECTED_VENDORS
+}
+
+enum AnnouncementSeverity {
+  INFO
+  IMPORTANT
+  CRITICAL
+}
+
+model Announcement {
+  id             String               @id @default(uuid())
+  title          String
+  body           String // plain text, max 2000
+  severity       AnnouncementSeverity @default(INFO)
+  audience       AnnouncementAudience @default(ALL_VENDORS)
+  status         AnnouncementStatus   @default(DRAFT)
+  scheduledFor   DateTime?
+  sentAt         DateTime?
+  cancelledAt    DateTime?
+  recipientCount Int                  @default(0)
+  lastError      String?
+  createdById    String
+  createdByName  String
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  vendors AnnouncementVendor[]
+
+  @@index([status, scheduledFor])
+}
+
+model AnnouncementVendor {
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  vendorId       String
+  vendor         Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@id([announcementId, vendorId])
+  @@index([vendorId])
 }

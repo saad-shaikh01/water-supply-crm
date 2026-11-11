@@ -11,4 +11,6 @@ export const QUEUE_NAMES = {
   VENDOR_IMPORT: 'vendor-import',
   PAYROLL_SLIP_SEND: 'payroll-slip-send',
   WHATSAPP_HEALTH: 'whatsapp-health',
+  BILLING: 'billing',
+  ANNOUNCEMENTS: 'announcements',
 } as const;
