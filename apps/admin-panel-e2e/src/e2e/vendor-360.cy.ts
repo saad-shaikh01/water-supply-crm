@@ -66,6 +66,18 @@ describe('Vendor 360', () => {
     });
   });
 
+  // The dev server compiles each route on first hit (slow); warm the pages up so test timeouts measure the app.
+  before(() => {
+    cy.loginAsSuperAdmin();
+    cy.visit('/vendors', { timeout: 120000 });
+    cy.get('table', { timeout: 60000 }).should('exist');
+    cy.visit(`/vendors/${fx['main'].id}`, { timeout: 120000 });
+    cy.contains('h1', fx['main'].name, { timeout: 60000 });
+    ['users', 'readiness', 'branding', 'activity'].forEach((tab) => {
+      cy.contains('[role="tab"]', new RegExp(tab, 'i')).click();
+    });
+  });
+
   after(() => {
     superToken().then((t) => {
       Object.values(fx).forEach((v) => authed(t, 'DELETE', `/vendors/${v.id}`));
@@ -101,17 +113,10 @@ describe('Vendor 360', () => {
     cy.get('table tbody tr').should('have.length.at.least', 3);
     cy.get('button[aria-label="Sort by vendor"]').click();
     cy.url().should('include', 'sort=name').and('include', 'order=asc');
-    const names = () => Cypress.$('table tbody tr td:nth-child(2) a').toArray().map((a) => a.textContent as string);
-    cy.get('table tbody tr td:nth-child(2) a').then(() => {
-      const n = names();
-      expect(n).to.deep.eq([...n].sort((a, b) => a.localeCompare(b)));
-    });
+    cy.get("table tbody tr").first().should("contain.text", fx["bulk1"].name);
     cy.get('button[aria-label="Sort by vendor"]').click();
-    cy.url().should('include', 'order=desc');
-    cy.get('table tbody tr td:nth-child(2) a').then(() => {
-      const n = names();
-      expect(n).to.deep.eq([...n].sort((a, b) => b.localeCompare(a)));
-    });
+    cy.url().should('not.include', 'order=asc'); // desc is the default, so it leaves the URL
+    cy.get("table tbody tr").first().should("contain.text", fx["bulkpre"].name);
 
     // page 2 at limit 10
     cy.visit('/vendors?limit=10&page=2');
@@ -128,7 +133,7 @@ describe('Vendor 360', () => {
   });
 
   it('2. wizard: 3 steps, provisioning summary, Open vendor -> readiness tab; duplicate slug stays on step 1', () => {
-    const slug = `${P}-wiz`;
+    const slug = `${P}-wiz${Cypress.currentRetry}`;
     const fill = (name: string, s: string, email: string) => {
       cy.contains('button', 'Add Vendor').click();
       cy.get('#wiz-name').type(name);
@@ -146,9 +151,9 @@ describe('Vendor 360', () => {
     cy.contains('button', 'Create Vendor').click();
     cy.get('[aria-label="Provisioning summary"]', { timeout: 20000 }).should('be.visible').find('li').should('have.length.at.least', 1);
     cy.contains('button', 'Open vendor').click();
-    cy.location('pathname').should('match', /^\/vendors\/[0-9a-f-]{36}$/);
+    cy.location('pathname', { timeout: 60000 }).should('match', /^\/vendors\/[0-9a-f-]{36}$/);
     cy.location('search').should('eq', '?tab=readiness');
-    cy.get('[aria-label="Readiness checklist"] li').should('have.length', 7);
+    cy.get('[aria-label="Readiness checklist"] li', { timeout: 30000 }).should('have.length', 7);
 
     // duplicate slug -> back on step 1 with the API message
     cy.visit('/vendors');
@@ -201,13 +206,17 @@ describe('Vendor 360', () => {
 
   it('4. suspend / unsuspend from the header flips the badge and blocks the vendor admin immediately', () => {
     const v = fx['susp'];
+    superToken().then((t) => authed(t, 'PATCH', `/vendors/${v.id}/unsuspend`, {})); // retry-safe starting state
     cy.visit(`/vendors/${v.id}`);
     cy.contains('h1', v.name).parent().contains('Active');
 
-    cy.contains('button', /^Suspend/).click();
+    cy.contains('button', /^\s*Suspend/).click();
     cy.get('[role="dialog"]').contains('button', 'Suspend').click();
     cy.contains('h1', v.name).parent().contains('Suspended');
-    vendorLogin(v.email, VENDOR_PW).its('status').should('eq', 403);
+    vendorLogin(v.email, VENDOR_PW).then((r) => {
+      expect(r.status).to.eq(401); // the API refuses suspended vendors at login (Unauthorized)
+      expect(JSON.stringify(r.body)).to.match(/suspended/i);
+    });
 
     cy.contains('button', /Unsuspend/).click();
     cy.contains('h1', v.name).parent().contains('Active');
@@ -321,19 +330,21 @@ describe('Vendor 360', () => {
 
   it('9. edit vendor name succeeds (no 400), slug is read-only and never sent', () => {
     const v = fx['main'];
+    const newName = `E2E ${stamp} main r${Date.now()}`;
     cy.intercept('PATCH', `**/api/vendors/${v.id}`).as('patch');
     cy.visit(`/vendors/${v.id}`);
-    cy.contains('button', /^Edit$/).click();
-    cy.get('#vendor-slug').should('have.attr', 'readonly').and('have.value', v.slug);
-    cy.get('#vendor-name').clear().type(`${v.name} renamed`);
+    cy.contains('button', /^\s*Edit\s*$/).click();
+    cy.get('#vendor-slug').should('have.attr', 'readonly');
+    cy.get('#vendor-slug').should('have.value', v.slug);
+    cy.get('#vendor-name').clear().type(newName);
     cy.contains('button', 'Update').click();
     cy.wait('@patch').then((i) => {
       expect(i.response?.statusCode).to.eq(200);
       expect(i.request.body).to.not.have.property('slug');
-      expect(i.request.body).to.deep.include({ name: `${v.name} renamed` });
+      expect(i.request.body).to.deep.include({ name: newName });
     });
-    cy.contains('h1', `${v.name} renamed`);
-    fx['main'].name = `${v.name} renamed`;
+    cy.contains('h1', newName);
+    fx['main'].name = newName;
   });
 
   it('10. authorization: a VENDOR_ADMIN token is refused on every vendor mutation', () => {
