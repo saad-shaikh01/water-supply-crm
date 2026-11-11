@@ -83,8 +83,12 @@ describe('dashboard', () => {
         cy.get(KPI('vendors-suspended')).find(VALUE).should('have.text', String(before + 1));
 
         cy.contains('aside a', 'Vendors').click();
-        cy.get('button[aria-label="Reactivate vendor"]').first().click();
-        cy.get('button[aria-label="Reactivate vendor"]').should('have.length', 0);
+        // other suspended vendors may already exist in a shared DB, so compare counts, not zero
+        cy.get('button[aria-label="Reactivate vendor"]').then(($btns) => {
+          const n = $btns.length;
+          cy.wrap($btns.first()).click();
+          cy.get('button[aria-label="Reactivate vendor"]').should('have.length', n - 1);
+        });
         cy.contains('aside a', 'Overview').click();
         cy.get(KPI('vendors-suspended')).find(VALUE).should('have.text', String(before));
       });

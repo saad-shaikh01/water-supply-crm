@@ -64,7 +64,11 @@ describe('auth', () => {
     cy.getCookie('auth_token').should('not.exist');
     cy.getCookie('refresh_token').should('not.exist');
     cy.getCookie('user_role').should('not.exist');
-    cy.go('back');
+    // Logout uses router.replace, so the protected page is not left in history and the entry
+    // before /auth/login can be about:blank (fresh test iframe), which made cy.go('back') flaky.
+    // Assert the behaviour that matters: the protected route bounces to login, even after reload.
+    cy.visit('/');
+    cy.location('pathname').should('eq', '/auth/login');
     cy.reload();
     cy.location('pathname').should('eq', '/auth/login');
     cy.window().then((win) => {
