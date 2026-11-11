@@ -42,9 +42,9 @@ describe('PlatformHealthService', () => {
     process.env = { ...saved };
   });
 
-  it('aggregates 12 queues, all 8 crons, db, redis', async () => {
+  it('aggregates every observed queue, all 8 crons, db, redis', async () => {
     const h = await svc.getHealth();
-    expect(h.queues).toHaveLength(12);
+    expect(h.queues).toHaveLength(OBSERVED_QUEUE_NAMES.length);
     expect(h.queues[0]).toMatchObject({ status: 'ok', counts: { waiting: 1, active: 2, delayed: 3, failed: 4, completed: 5 } });
     expect(h.crons).toHaveLength(CRON_REGISTRY.length);
     expect(h.database.status).toBe('up');
