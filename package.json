@@ -7,6 +7,7 @@
     "rbac:seed": "node -r ./scripts/register-ts-paths.cjs libs/shared/database/prisma/rbac-seed.ts",
     "backfill:voice-mp3": "node -r ./scripts/register-ts-paths.cjs scripts/backfill-voice-messages-mp3.ts",
     "report:cash-ledger-restatement": "node -r ./scripts/register-ts-paths.cjs scripts/cash-ledger-restatement.ts",
+    "verify:admin": "node scripts/verify-admin.cjs",
     "authz:check": "node scripts/check-no-legacy-authz.cjs && node scripts/check-authz-coverage.cjs"
   },
   "prisma": {
