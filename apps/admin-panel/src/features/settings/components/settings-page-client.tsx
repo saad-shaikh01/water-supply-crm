@@ -34,12 +34,12 @@ export function SettingsPageClient() {
         <ErrorState error={error} onRetry={() => refetch()} />
       ) : (
         <Tabs defaultValue="general">
-          <TabsList>
+          <div className="overflow-x-auto"><TabsList>
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="flags">Feature flags</TabsTrigger>
             <TabsTrigger value="defaults">Defaults</TabsTrigger>
             <TabsTrigger value="security">Security policy</TabsTrigger>
-          </TabsList>
+          </TabsList></div>
           <TabsContent value="general" className="mt-4">
             <MaintenanceCard data={data} />
           </TabsContent>
