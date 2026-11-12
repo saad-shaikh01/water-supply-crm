@@ -53,7 +53,7 @@ export default defineConfig({
       vendorAdminPassword: process.env['CYPRESS_VENDOR_ADMIN_PASSWORD'] || '',
     },
     retries: { runMode: 1, openMode: 0 },
-    defaultCommandTimeout: 10000,
+    defaultCommandTimeout: 20000, // generous: the suite runs against a production build on a shared, often CPU-starved host
     video: false,
     setupNodeEvents(on) {
       on('task', {

@@ -115,19 +115,24 @@ describe('settings and maintenance', () => {
       cy.rootToken().then((root) => {
         cy.apiAs(root, 'PATCH', '/platform-settings', { 'maintenance.enabled': true });
         cy.apiAs(vToken, 'GET', '/customers').its('status').should('eq', 503);
-        cy.apiAs(root, 'PATCH', '/platform-settings', { 'maintenance.enabled': false }).its('status').should('eq', 200);
+        cy.apiAs(root, 'PATCH', '/platform-settings', { 'maintenance.enabled': false })
+          .its('status')
+          .should('eq', 200)
+          .then(() => {
+            // the clock starts when the toggle has been applied (not when the command was queued), so test-runner load cannot skew it
+            const started = Date.now();
+            const poll = (): Cypress.Chainable<unknown> =>
+              cy.apiAs(vToken, 'GET', '/customers').then((res) => {
+                if (res.status !== 503) {
+                  expect(Date.now() - started).to.be.lessThan(5000);
+                  return;
+                }
+                expect(Date.now() - started, 'recovered in time').to.be.lessThan(5000);
+                return cy.wait(500).then(poll);
+              });
+            poll();
+          });
       });
-      const started = Date.now();
-      const poll = (): Cypress.Chainable<unknown> =>
-        cy.apiAs(vToken, 'GET', '/customers').then((res) => {
-          if (res.status !== 503) {
-            expect(Date.now() - started).to.be.lessThan(5000);
-            return;
-          }
-          expect(Date.now() - started, 'recovered in time').to.be.lessThan(5000);
-          return cy.wait(500).then(poll);
-        });
-      poll();
     });
   });
 
