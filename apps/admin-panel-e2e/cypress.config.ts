@@ -40,6 +40,7 @@ export default defineConfig({
     baseUrl,
     env: {
       apiUrl: process.env['CYPRESS_API_URL'] || 'http://localhost:3000/api',
+      vendorDashboardUrl: process.env['CYPRESS_VENDOR_DASHBOARD_URL'] || 'http://localhost:4204',
       adminEmail: process.env['CYPRESS_ADMIN_EMAIL'] || '',
       adminPassword: process.env['CYPRESS_ADMIN_PASSWORD'] || '',
       vendorAdminEmail: process.env['CYPRESS_VENDOR_ADMIN_EMAIL'] || '',
