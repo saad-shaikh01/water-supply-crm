@@ -18,13 +18,23 @@ const redisContainer = process.env['CYPRESS_REDIS_CONTAINER'] || 'wscrm-redis';
 const pgContainer = process.env['CYPRESS_PG_CONTAINER'] || 'wscrm-test-pg';
 const pgDatabase = process.env['CYPRESS_PG_DB'] || 'wscrm_p5';
 
-/** Run redis-cli inside the dev Redis container (used only to reset throttler counters). */
+/**
+ * Run redis-cli inside the dev Redis container (used only to reset throttler counters).
+ * Docker Desktop occasionally stalls a `docker exec`; bound each attempt and retry so one hang cannot fail a whole spec.
+ */
 function redisEval(script: string, ...args: string[]): string {
-  return execFileSync(
-    'docker',
-    ['exec', redisContainer, 'redis-cli', '--raw', 'EVAL', script, '0', ...args],
-    { encoding: 'utf8' },
-  ).trim();
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return execFileSync('docker', ['exec', redisContainer, 'redis-cli', '--raw', 'EVAL', script, '0', ...args], {
+        encoding: 'utf8',
+        timeout: 15_000,
+      }).trim();
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
 }
 
 const DEL_BY_PATTERN =
