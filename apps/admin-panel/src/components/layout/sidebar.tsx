@@ -97,6 +97,12 @@ export function MobileNav({ open, onOpenChange }: { open: boolean; onOpenChange:
       <SheetContent
         side="left"
         id="mobile-nav"
+        aria-modal="true"
+        onCloseAutoFocus={(e) => {
+          // controlled open state has no Trigger, so Radix has nowhere to return focus: send it to the hamburger
+          e.preventDefault();
+          document.getElementById("mobile-nav-trigger")?.focus();
+        }}
         className="lg:hidden w-64 max-w-[85vw] p-0 gap-0 flex flex-col bg-background"
         style={{ overflowY: 'hidden' }}
       >

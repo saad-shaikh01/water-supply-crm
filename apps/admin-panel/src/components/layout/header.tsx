@@ -16,6 +16,7 @@ export function Header({ onMenuClick, menuOpen = false }: { onMenuClick?: () => 
             variant="ghost"
             size="icon"
             className="lg:hidden h-10 w-10 shrink-0"
+            id="mobile-nav-trigger"
             aria-label="Open navigation menu"
             aria-expanded={menuOpen}
             aria-controls="mobile-nav"
@@ -27,7 +28,7 @@ export function Header({ onMenuClick, menuOpen = false }: { onMenuClick?: () => 
           <div className="p-1.5 rounded-lg bg-primary/10 text-primary shrink-0">
             <Droplets className="h-5 w-5" />
           </div>
-          <h2 className="truncate text-lg font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-600">
+          <h2 className="hidden sm:block truncate text-lg font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-600">
             Admin Panel
           </h2>
         </div>
