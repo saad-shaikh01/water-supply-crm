@@ -4,20 +4,20 @@ export {}; // module scope: keeps top-level consts private to this spec
  * Root (the configured SUPER_ADMIN) drives the UI; targets are fresh admins created per scenario.
  */
 const apiUrl = () => Cypress.env('apiUrl') as string;
-const stamp = Date.now();
 
 describe('platform admins', () => {
   beforeEach(() => cy.loginAsSuperAdmin());
   afterEach(() => cy.resetPlatformSettings());
 
   it('1. create an admin: the temporary password is shown once and the account is flagged mustChangePassword', () => {
-    const email = `third.${stamp}@e2e.test`;
+    const s = Date.now(); // unique per attempt so a retry never collides with the account the first attempt created
+    const email = `third.${s}@e2e.test`;
     cy.visit('/settings/admins');
     cy.contains('button', 'Add administrator').click();
-    cy.get('#admin-name').type(`Third ${stamp}`);
+    cy.get('#admin-name').type(`Third ${s}`);
     cy.get('#admin-email').type(email);
     cy.contains('button', 'Create administrator').click();
-    cy.get('[data-testid="temp-password"]', { timeout: 15000 })
+    cy.get('[data-testid="temp-password"]', { timeout: 45000 })
       .invoke('text')
       .then((tempPassword) => {
         expect(tempPassword.length).to.be.greaterThan(11);

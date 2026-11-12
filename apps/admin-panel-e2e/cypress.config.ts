@@ -41,6 +41,9 @@ export default defineConfig({
       ciBaseUrl: 'http://127.0.0.1:4200',
     }),
     baseUrl,
+    // Desktop default (>= lg breakpoint so the sidebar is visible); responsive specs set their own viewports.
+    viewportWidth: 1280,
+    viewportHeight: 800,
     env: {
       apiUrl: process.env['CYPRESS_API_URL'] || 'http://localhost:3000/api',
       vendorDashboardUrl: process.env['CYPRESS_VENDOR_DASHBOARD_URL'] || 'http://localhost:4204',
