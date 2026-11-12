@@ -13,7 +13,8 @@ const pwa = withPWA({
   dest: 'public',
   sw: 'sw.js',
   register: true,
-  disable: process.env.NODE_ENV === 'development',
+  // DISABLE_PWA=1 builds without a service worker (browser e2e: a cached SW would replay stale navigations).
+  disable: process.env.NODE_ENV === 'development' || process.env.DISABLE_PWA === '1',
   workboxOptions: {
     disableDevLogs: true,
   },

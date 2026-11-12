@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { impersonationApi } from '../../../features/impersonation/api/impersonation.api';
 import { clearAuthCookies, startImpersonationCookies } from '../../../features/impersonation/session';
+import { useAuthStore, type UserRole } from '../../../store/auth.store';
 
 function Exchange() {
   const params = useSearchParams();
@@ -22,10 +23,13 @@ function Exchange() {
     window.history.replaceState(null, '', '/auth/impersonate');
     // A stale token must not be attached to the (public) exchange call.
     clearAuthCookies();
+    useAuthStore.getState().clearUser(); // drop any previous vendor user
     impersonationApi
       .exchange(code)
       .then(({ data }) => {
         startImpersonationCookies(data.access_token, data.user.role);
+        // Persisted store (rehydrated by the dashboard): without it the banner/header show no vendor user name.
+        useAuthStore.getState().setUser({ ...data.user, role: data.user.role as UserRole });
         window.location.replace('/dashboard/overview');
       })
       .catch(() => setError('This support link is invalid, expired or has already been used.'));
