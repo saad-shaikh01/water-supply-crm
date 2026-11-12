@@ -2,6 +2,7 @@ import { nxE2EPreset } from '@nx/cypress/plugins/cypress-preset';
 import { defineConfig } from 'cypress';
 import { execFileSync } from 'node:child_process';
 import { authenticator } from 'otplib';
+import Redis from 'ioredis';
 
 /**
  * Admin-panel e2e config.
@@ -18,11 +19,23 @@ const redisContainer = process.env['CYPRESS_REDIS_CONTAINER'] || 'wscrm-redis';
 const pgContainer = process.env['CYPRESS_PG_CONTAINER'] || 'wscrm-test-pg';
 const pgDatabase = process.env['CYPRESS_PG_DB'] || 'wscrm_p5';
 
+const redisUrl = process.env['CYPRESS_REDIS_URL'] || '';
+
 /**
- * Run redis-cli inside the dev Redis container (used only to reset throttler counters).
- * Docker Desktop occasionally stalls a `docker exec`; bound each attempt and retry so one hang cannot fail a whole spec.
+ * Evaluate a Lua script on the dev Redis (used only to reset throttler counters / bust the settings cache).
+ * Prefers a direct connection (CYPRESS_REDIS_URL, e.g. redis://127.0.0.1:56385); falls back to `docker exec redis-cli`,
+ * which Docker Desktop occasionally stalls, so each attempt is bounded and retried.
  */
-function redisEval(script: string, ...args: string[]): string {
+async function redisEval(script: string, ...args: string[]): Promise<string> {
+  if (redisUrl) {
+    const client = new Redis(redisUrl, { maxRetriesPerRequest: 2, connectTimeout: 5000, lazyConnect: true });
+    try {
+      await client.connect();
+      return String(await client.eval(script, 0, ...args));
+    } finally {
+      client.disconnect();
+    }
+  }
   let lastErr: unknown;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
@@ -68,17 +81,17 @@ export default defineConfig({
     setupNodeEvents(on) {
       on('task', {
         /** The API throttles /auth/login to 5/min per IP; reset between tests. */
-        resetThrottle() {
-          redisEval(DEL_BY_PATTERN, '{*}:hits', '{*}:blocked');
+        async resetThrottle() {
+          await redisEval(DEL_BY_PATTERN, '{*}:hits', '{*}:blocked');
           return null;
         },
         /**
          * Break-glass for a failed 2FA-enforcement test: with enforcement ON the root admin (no 2FA) cannot sign in to
          * switch it off, so delete the setting row and bust the Redis cache directly. Never used on the happy path.
          */
-        forceEnforcementOff() {
+        async forceEnforcementOff() {
           execFileSync('docker', ['exec', pgContainer, 'psql', '-U', 'wscrm', '-d', pgDatabase, '-c', "DELETE FROM platform_settings WHERE key = 'security.require2faForSuperAdmin'"], { encoding: 'utf8' });
-          redisEval("redis.call('del', ARGV[1]) return 1", 'platform:settings:v1');
+          await redisEval("redis.call('del', ARGV[1]) return 1", 'platform:settings:v1');
           return null;
         },
         /**
