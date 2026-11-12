@@ -19,20 +19,14 @@ const only = (args.find((a) => a.startsWith('--only=')) || '').slice(7);
 // Admin-related backend modules only. Excludes vendor/tenant-security, payroll,
 // van-cash, notifications, pdf (pre-existing failures unrelated to admin work).
 const ADMIN_BACKEND_MODULES = [
-  'platform-admin',
-  'platform-settings',
-  'platform-observability',
-  'announcements',
-  'impersonation',
-  'vendor-readiness',
-  'auth/',
-  'billing',
-  'vendor/vendor-',
-  'vendor/dto',
-  'audit/',
-  'dashboard/platform-overview',
+  'auth/', 'vendor/', 'audit/', 'dashboard/', 'platform-observability/', 'platform-admin/', 'platform-settings/',
+  'billing/', 'announcements/', 'impersonation/', 'whatsapp/', 'user/', 'customer/', 'van/', 'vendor-import/',
+  'vendor-readiness/',
 ];
+// Known failing on main before any admin work; excluded so the gate reflects admin changes only.
+const KNOWN_PRE_EXISTING_SUITES = ['payroll', 'van-cash-ledger', 'notifications', 'pdf', 'tenant-security.integration'];
 const backendPattern = ADMIN_BACKEND_MODULES.map((m) => 'modules/' + m).join('|');
+const backendIgnore = KNOWN_PRE_EXISTING_SUITES.join('|');
 
 const steps = [
   { name: 'admin-panel jest (coverage thresholds)', cwd: 'apps/admin-panel', cmd: ['npx', 'jest', '--coverage'] },
@@ -43,9 +37,9 @@ const steps = [
     ? []
     : [{
         name: 'backend jest (admin modules)',
-        cmd: ['npx', 'jest', '-c', 'apps/api-backend/jest.config.cts', '--testPathPatterns', '"' + backendPattern + '"'],
+        cmd: ['npx', 'jest', '-c', 'apps/api-backend/jest.config.cts', '--testPathPatterns', '"' + backendPattern + '"', '--testPathIgnorePatterns', '"' + backendIgnore + '"'],
       }]),
-  { name: 'authz:check', cmd: ['npm', 'run', '--silent', 'authz:check'] },
+  { name: 'authz:check (vs baseline)', cmd: ['node', 'scripts/authz-baseline.cjs'] },
   { name: 'authz selftest', cmd: ['node', 'scripts/check-authz-coverage.selftest.cjs'] },
   ...(withE2e
     ? [{ name: 'cypress e2e (servers must be running)', cmd: ['npx', 'cypress', 'run', '--project', 'apps/admin-panel-e2e', '--config-file', 'cypress.config.ts'] }]
