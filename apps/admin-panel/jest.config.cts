@@ -29,7 +29,9 @@ const config = {
   // Not thresholded yet (low coverage, follow-up): audit, health, imports,
   // vendor-picker, app/(dashboard) page wrappers.
   coverageThreshold: {
-    global: { statements: 65, branches: 58, functions: 53, lines: 66 },
+    // Jest excludes path-thresholded dirs from 'global': this covers the rest
+    // (audit, health, imports, vendor-picker, whatsapp, components, lib, app pages).
+    global: { statements: 51, branches: 49, functions: 42, lines: 51 },
     './src/features/auth/': { statements: 87, branches: 87, functions: 73, lines: 88 },
     './src/features/security/': { statements: 75, branches: 80, functions: 67, lines: 73 },
     './src/features/settings/': { statements: 90, branches: 80, functions: 83, lines: 90 },
