@@ -1,4 +1,5 @@
-import { Injectable, ConflictException, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { PlanLimitService } from '../billing/plan-limit.service';
+import { Injectable, ConflictException, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { Prisma, UserRole } from '@prisma/client';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
@@ -44,6 +45,7 @@ export class UserService {
     private audit: AuditService,
     private permissions: PermissionService,
     private policy: AuthzPolicyService,
+    @Optional() private planLimits?: PlanLimitService,
   ) {}
 
   async create(data: {
@@ -55,6 +57,10 @@ export class UserService {
     phoneNumber?: string;
   }, actor?: AuthUser) {
     assertCanAssignRole(actor, data.role);
+
+    if (data.role === UserRole.DRIVER && data.vendorId) {
+      await this.planLimits?.assertCanCreate(data.vendorId, 'DRIVER');
+    }
 
     // Email/password may be omitted only for no-login field staff
     if (!NO_LOGIN_ROLES.includes(data.role)) {
@@ -471,7 +477,7 @@ export class UserService {
   async updatePassword(userId: string, hashedPassword: string) {
     return this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashedPassword },
+      data: { password: hashedPassword, mustChangePassword: false },
     });
   }
 
@@ -484,7 +490,7 @@ export class UserService {
     if (!valid) throw new BadRequestException('Current password is incorrect');
 
     const hashed = await bcrypt.hash(newPassword, 10);
-    await this.prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+    await this.prisma.user.update({ where: { id: userId }, data: { password: hashed, mustChangePassword: false } });
     return { message: 'Password changed successfully' };
   }
 }

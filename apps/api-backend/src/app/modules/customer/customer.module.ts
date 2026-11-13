@@ -12,8 +12,10 @@ import { CustomerFlagController } from './customer-flag.controller';
 import { AuditModule } from '../audit/audit.module';
 import { CustomerDepositsModule } from '../customer-deposits/customer-deposits.module';
 
+import { PlanLimitModule } from '../billing/plan-limit.module';
+
 @Module({
-  imports: [
+  imports: [PlanLimitModule, 
     AuditModule,
     CustomerDepositsModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.BULK_PRICE_UPDATE }),

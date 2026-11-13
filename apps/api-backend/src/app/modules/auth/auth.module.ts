@@ -7,19 +7,27 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { getJwtSecret } from './jwt-secret';
+import { AuditModule } from '../audit/audit.module';
+import { AuthSessionService } from './session/auth-session.service';
+import { TwoFactorService } from './two-factor/two-factor.service';
+import { AuthSecurityPolicyService } from './security-policy.service';
+import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
+import { SecurityController } from './security.controller';
 
 @Module({
   imports: [
     UserModule,
     AuthzModule,
+    AuditModule,
+    PlatformSettingsModule,
     PassportModule,
     JwtModule.register({
       secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  controllers: [AuthController, SecurityController],
+  providers: [AuthService, JwtStrategy, AuthSessionService, TwoFactorService, AuthSecurityPolicyService],
+  exports: [AuthService, AuthSessionService, TwoFactorService, AuthSecurityPolicyService],
 })
 export class AuthModule {}

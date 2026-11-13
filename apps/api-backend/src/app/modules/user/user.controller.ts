@@ -18,11 +18,13 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @BlockWhenImpersonating()
   @Post()
   @RequirePermissions('users:create')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
@@ -48,6 +50,7 @@ export class UserController {
     return this.userService.findOneByVendor(user.vendorId, id);
   }
 
+  @BlockWhenImpersonating()
   @Patch(':id')
   @RequirePermissions('users:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
@@ -60,6 +63,7 @@ export class UserController {
   }
 
   /** PATCH /users/:id/deactivate — soft-disable (isActive = false), preserves all history */
+  @BlockWhenImpersonating()
   @Patch(':id/deactivate')
   @RequirePermissions('users:deactivate')
   async deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -67,6 +71,7 @@ export class UserController {
   }
 
   /** PATCH /users/:id/reactivate — re-enable a previously deactivated user */
+  @BlockWhenImpersonating()
   @Patch(':id/reactivate')
   @RequirePermissions('users:restore')
   async reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -74,6 +79,7 @@ export class UserController {
   }
 
   /** PATCH /users/me/change-password — user changes their own password */
+  @BlockWhenImpersonating()
   @Patch('me/change-password')
   @AuthenticatedOnly()
   @AllowCustomer()
@@ -83,6 +89,7 @@ export class UserController {
   }
 
   /** DELETE /users/:id — permanent delete, blocked if user has any daily sheets */
+  @BlockWhenImpersonating()
   @Delete(':id')
   @RequirePermissions('users:delete')
   async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {

@@ -96,3 +96,29 @@ describe('ImportService.execute guards', () => {
     await expect(done.svc.execute(user, 'b1', dto())).rejects.toMatchObject({ code: 'NOT_EXECUTABLE' });
   });
 });
+
+describe('ImportService.execute plan limit (Phase 4)', () => {
+  it('pre-checks the whole batch once and refuses with PLAN_LIMIT_REACHED before queueing', async () => {
+    const { ForbiddenException } = await import('@nestjs/common');
+    const { svc, queue, prisma } = build(mapped());
+    (prisma as any).importRow = { count: jest.fn(async () => 12) };
+    const planLimits = {
+      assertCanCreate: jest.fn(async () => {
+        throw new ForbiddenException({ code: 'PLAN_LIMIT_REACHED', resource: 'CUSTOMER', limit: 10, used: 0 });
+      }),
+    };
+    (svc as any).planLimits = planLimits;
+    await expect(svc.execute(user, 'b1', dto())).rejects.toBeInstanceOf(ForbiddenException);
+    expect(planLimits.assertCanCreate).toHaveBeenCalledTimes(1);
+    expect(planLimits.assertCanCreate).toHaveBeenCalledWith('v1', 'CUSTOMER', 12);
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(prisma.importBatch.updateMany).not.toHaveBeenCalled();
+  });
+  it('proceeds when the batch fits', async () => {
+    const { svc, queue, prisma } = build(mapped());
+    (prisma as any).importRow = { count: jest.fn(async () => 3) };
+    (svc as any).planLimits = { assertCanCreate: jest.fn(async () => undefined) };
+    await expect(svc.execute(user, 'b1', dto())).resolves.toMatchObject({ status: 'QUEUED' });
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+});

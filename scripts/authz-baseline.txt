@@ -1,0 +1,22 @@
+# Pre-existing authz:check findings on main (file + handler name + count). Do not add new entries.
+modules/customer-group/customer-group.controller.ts get 1
+modules/customer-group/customer-group.controller.ts set 1
+modules/vendor-branding/vendor-branding.controller.ts get 1
+modules/vendor-branding/vendor-branding.controller.ts preview 1
+modules/vendor-branding/vendor-branding.controller.ts removeImage 1
+modules/vendor-branding/vendor-branding.controller.ts save 1
+modules/vendor-branding/vendor-branding.controller.ts uploadImage 1
+modules/vendor-readiness/vendor-readiness.controller.ts get 1
+modules/vendor-readiness/vendor-readiness.controller.ts goLive 1
+modules/vendor-readiness/vendor-readiness.controller.ts goOffline 1
+modules/vendor-readiness/vendor-readiness.controller.ts overview 1
+modules/whatsapp/whatsapp.controller.ts connect 1
+modules/whatsapp/whatsapp.controller.ts disconnect 1
+modules/whatsapp/whatsapp.controller.ts get 1
+modules/whatsapp/whatsapp.controller.ts importPlatform 1
+modules/whatsapp/whatsapp.controller.ts link 1
+modules/whatsapp/whatsapp.controller.ts list 1
+modules/whatsapp/whatsapp.controller.ts settings 1
+modules/whatsapp/whatsapp.controller.ts syncTemplates 1
+modules/whatsapp/whatsapp.controller.ts templates 1
+modules/whatsapp/whatsapp.controller.ts verify 1

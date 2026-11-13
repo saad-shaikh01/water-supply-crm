@@ -28,6 +28,7 @@ function build(opts: { vendor?: typeof VENDOR | null; rowsPerTable?: number; pas
   const cache = {
     invalidateVendorEntity: jest.fn(),
     invalidateOverview: jest.fn(),
+    invalidatePlatformDashboard: jest.fn(),
     invalidateAnalytics: jest.fn(),
     invalidateDailyDashboard: jest.fn(),
   };
@@ -140,6 +141,7 @@ describe('VendorWipeService', () => {
       expect(h.tx.vendor.update).toHaveBeenCalledWith({ where: { id: 'v-1' }, data: { goLiveAt: null } });
       expect(h.provisioning.provisionInTx).toHaveBeenCalledWith(h.tx, 'v-1');
       expect(h.cache.invalidateOverview).toHaveBeenCalledWith('v-1');
+      expect(h.cache.invalidatePlatformDashboard).toHaveBeenCalledTimes(1);
 
       expect(h.audit.log).toHaveBeenCalledTimes(1);
       const logged = h.audit.log.mock.calls[0][0] as Record<string, unknown>;
@@ -157,6 +159,7 @@ describe('VendorWipeService', () => {
       await expect(h.service.wipe(ACTOR, 'v-1', goodDto({ previewToken: token }))).rejects.toThrow('fk violation');
       expect(h.audit.log).not.toHaveBeenCalled();
       expect(h.cache.invalidateOverview).not.toHaveBeenCalled();
+      expect(h.cache.invalidatePlatformDashboard).not.toHaveBeenCalled();
     });
   });
 });

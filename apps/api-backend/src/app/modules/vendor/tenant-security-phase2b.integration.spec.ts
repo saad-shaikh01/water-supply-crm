@@ -7,6 +7,7 @@ import { VendorService, vendorSuspendedKey } from './vendor.service';
 import { VendorProvisioningService } from './vendor-provisioning.service';
 import { UserService } from '../user/user.service';
 import { AuthService } from '../auth/auth.service';
+import { authExtraDeps } from '../auth/testing/auth-deps';
 import { JwtStrategy } from '../auth/jwt.strategy';
 import { PermissionService } from '../authz/permission.service';
 import { AuditController } from '../audit/audit.controller';
@@ -49,7 +50,7 @@ describeDb('Tenant security phase 2B (real Postgres)', () => {
   const provisioning = new VendorProvisioningService(prisma, permissionService, noopAudit as never);
   const vendors = new VendorService(prisma, cache as never, noopAudit as never, provisioning);
   const users = new UserService(prisma, cache as never, noopAudit as never, permissionService, { assertNotLastAdmin: jest.fn() } as never);
-  const auth = new AuthService(users, {} as never, {} as never, cache as never);
+  const auth = new AuthService(users, {} as never, {} as never, cache as never, ...(authExtraDeps() as [never, never, never, never]));
   const damage = new DamageCaseService(prisma, {} as never, anything, anything);
   const warehouse = new WarehouseService(prisma, {} as never);
   const orders = new OrderService(prisma, anything, anything, cache as never, {} as never);
@@ -65,7 +66,8 @@ describeDb('Tenant security phase 2B (real Postgres)', () => {
     customerId: null,
   });
   const makeVendor = async (tag: string) => {
-    const v = await vendors.create({ name: `${tag} ${RUN}`, slug: `p2b-${tag}-${RUN}`, adminEmail: `admin-${tag}-${RUN}@t.test`, adminPassword: PASSWORD, adminName: `Admin ${tag}` });
+    const v = (await vendors.create({ name: `${tag} ${RUN}`, slug: `p2b-${tag}-${RUN}`, adminEmail: `admin-${tag}-${RUN}@t.test`, adminPassword: PASSWORD, adminName: `Admin ${tag}` })).vendor;
+
     vendorIds.push(v.id);
     const admin = asUser(await prisma.user.findUniqueOrThrow({ where: { email: `admin-${tag}-${RUN}@t.test` } }));
     return { v, admin };

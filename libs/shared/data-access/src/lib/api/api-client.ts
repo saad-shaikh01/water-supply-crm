@@ -38,11 +38,28 @@ const clearAuth = () => {
   if (typeof window !== 'undefined') window.location.href = '/auth/login';
 };
 
-// ── Response interceptor — silent token refresh on 401 ────────────────
+/** Browser event fired when the API answers 503 MAINTENANCE_MODE (see MaintenanceGate in @water-supply-crm/ui). */
+export const MAINTENANCE_EVENT = 'platform:maintenance';
+
+export interface MaintenanceDetail {
+  message?: string;
+  eta?: string | null;
+}
+
+// ── Response interceptor — maintenance notice + silent token refresh on 401 ──
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
+
+    // 503 + code MAINTENANCE_MODE: tell the app shell (it renders a full-screen notice). Nothing else changes.
+    if (error.response?.status === 503 && error.response?.data?.code === 'MAINTENANCE_MODE') {
+      if (typeof window !== 'undefined') {
+        const { message, eta } = error.response.data as MaintenanceDetail;
+        window.dispatchEvent(new CustomEvent<MaintenanceDetail>(MAINTENANCE_EVENT, { detail: { message, eta } }));
+      }
+      return Promise.reject(error);
+    }
 
     // Skip: not 401, already retried, or it IS the refresh endpoint
     if (

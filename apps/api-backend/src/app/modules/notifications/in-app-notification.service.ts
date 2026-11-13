@@ -19,6 +19,12 @@ export class InAppNotificationService {
     return this.prisma.inAppNotification.create({ data: dto });
   }
 
+  /** Bulk insert (announcement fan-out); callers chunk the input. */
+  async createMany(dtos: CreateInAppNotificationDto[]) {
+    if (dtos.length === 0) return { count: 0 };
+    return this.prisma.inAppNotification.createMany({ data: dtos });
+  }
+
   async getForUser(
     userId: string,
     page = 1,

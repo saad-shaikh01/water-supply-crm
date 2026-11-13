@@ -174,7 +174,10 @@ export class VendorWipeService {
   private async dropCaches(vendorId: string) {
     try {
       await Promise.all([
-        ...Object.values(CACHE_KEYS).map((k) => this.cache.invalidateVendorEntity(vendorId, k)),
+        ...Object.values(CACHE_KEYS)
+          .filter((k) => k !== CACHE_KEYS.PLATFORM_DASHBOARD_OVERVIEW)
+          .map((k) => this.cache.invalidateVendorEntity(vendorId, k)),
+        this.cache.invalidatePlatformDashboard(),
         this.cache.invalidateOverview(vendorId),
         this.cache.invalidateAnalytics(vendorId),
         this.cache.invalidateDailyDashboard(vendorId),

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Manrope, JetBrains_Mono } from 'next/font/google';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { QueryProvider } from '@water-supply-crm/data-access';
-import { Toaster } from '@water-supply-crm/ui';
+import { MaintenanceGate, Toaster } from '@water-supply-crm/ui';
 import { ThemeProvider } from '../components/layout/theme-provider';
 import { StoreHydration } from '../components/providers/store-hydration';
 import './global.css';
@@ -69,6 +69,7 @@ export default function RootLayout({
               {children}
             </NuqsAdapter>
             <Toaster />
+            <MaintenanceGate />
           </QueryProvider>
         </ThemeProvider>
       </body>

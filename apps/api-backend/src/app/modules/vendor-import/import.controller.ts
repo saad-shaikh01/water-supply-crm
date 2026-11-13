@@ -25,6 +25,7 @@ import { HISTORY_IMPORT_LIMITS, IMPORT_LIMITS } from './import.constants';
 import { ColumnValuesQueryDto, ExecuteImportDto, ImportListQueryDto, ImportRowsQueryDto, ReportQueryDto, SaveMappingDto, UpdateImportRowDto, UploadImportDto } from './dto/import.dto';
 import { ImportErrorFilter } from './import-error.filter';
 import { ImportService } from './import.service';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -132,6 +133,7 @@ export class ImportController {
     return this.imports.sourceUrl(user.vendorId, id);
   }
 
+  @BlockWhenImpersonating()
   @Post(':id/execute')
   @RequirePermissions('data_imports:execute')
   @Throttle({ short: { ttl: 2000, limit: 1 }, medium: { ttl: 60000, limit: 5 } })
@@ -151,6 +153,7 @@ export class ImportController {
     return this.imports.revertPreview(user.vendorId, id);
   }
 
+  @BlockWhenImpersonating()
   @Post(':id/revert')
   @RequirePermissions('data_imports:revert')
   @Throttle({ short: { ttl: 2000, limit: 1 }, medium: { ttl: 60000, limit: 5 } })

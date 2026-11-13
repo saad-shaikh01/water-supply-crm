@@ -143,3 +143,54 @@ describe('VendorReadinessService', () => {
     expect(rows).toEqual([{ vendor: { id: 'v1', name: 'Lorem' }, live: false, ready: false, requiredDone: 4, requiredTotal: 5, open: ['products'] }]);
   });
 });
+
+describe('VendorReadinessService P2 B6', () => {
+  const mk = (vendorIds: string[]) => {
+    const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const prisma: any = {
+      vendor: {
+        findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, name: `N-${where.id}`, goLiveAt: null })),
+        update: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn(async () => vendorIds.map((id) => ({ id }))),
+      },
+      vendorBranding: { findUnique: jest.fn(async () => null) },
+      product: { count: jest.fn(async () => 0) },
+      van: { count: jest.fn(async () => 0) },
+      route: { count: jest.fn(async () => 0) },
+      customer: { count: jest.fn(async () => 0) },
+    };
+    const accounts = { getView: jest.fn(async () => ({ account: null })), getTemplates: jest.fn(async () => ({ hasAccount: false })), invalidate: jest.fn() };
+    return { service: new VendorReadinessService(prisma, accounts as never, audit as never), audit, prisma };
+  };
+
+  it('go-offline audit stores the reason', async () => {
+    const { service, audit } = mk([]);
+    await service.goOffline('v1', actor, 'payment dispute');
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'GO_OFFLINE', changes: { reason: 'payment dispute' } }));
+  });
+
+  it('go-offline without a reason writes no changes', async () => {
+    const { service, audit } = mk([]);
+    await service.goOffline('v1', actor);
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'GO_OFFLINE', changes: undefined }));
+  });
+
+  it('overview never runs more than 5 vendors at once and keeps vendor order', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `v${i}`);
+    const { service, prisma } = mk(ids);
+    let inFlight = 0;
+    let peak = 0;
+    prisma.vendor.findUnique.mockImplementation(async ({ where }: any) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      // later vendors finish first, to prove ordering is by input not completion
+      await new Promise((r) => setTimeout(r, 25 - Number(where.id.slice(1)) * 2));
+      inFlight--;
+      return { id: where.id, name: `N-${where.id}`, goLiveAt: null };
+    });
+    const rows = await service.overview();
+    expect(rows.map((r) => r.vendor.id)).toEqual(ids);
+    expect(peak).toBeLessThanOrEqual(5);
+    expect(peak).toBeGreaterThan(1);
+  });
+});

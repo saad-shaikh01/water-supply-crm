@@ -8,6 +8,7 @@ import { VendorService } from './vendor.service';
 import { VendorProvisioningService } from './vendor-provisioning.service';
 import { UserService } from '../user/user.service';
 import { AuthService } from '../auth/auth.service';
+import { authExtraDeps } from '../auth/testing/auth-deps';
 import { JwtStrategy } from '../auth/jwt.strategy';
 import { PermissionService } from '../authz/permission.service';
 import { CustomerService } from '../customer/customer.service';
@@ -45,7 +46,7 @@ describeDb('Tenant security (real Postgres): vendors A and B', () => {
   const provisioning = new VendorProvisioningService(prisma, permissionService, audit as never);
   const vendors = new VendorService(prisma, cache as never, audit as never, provisioning);
   const users = new UserService(prisma, cache as never, audit as never, permissionService, policy as never);
-  const auth = new AuthService(users, {} as never, {} as never, cache as never);
+  const auth = new AuthService(users, {} as never, {} as never, cache as never, ...(authExtraDeps() as [never, never, never, never]));
   const damage = new DamageCaseService(
     prisma,
     {} as never,
@@ -70,8 +71,10 @@ describeDb('Tenant security (real Postgres): vendors A and B', () => {
   let adminA: AuthUser;
 
   beforeAll(async () => {
-    A = await vendors.create({ name: `A ${RUN}`, slug: `sec-a-${RUN}`, adminEmail: `admin-a-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin A' });
-    B = await vendors.create({ name: `B ${RUN}`, slug: `sec-b-${RUN}`, adminEmail: `admin-b-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin B' });
+    A = (await vendors.create({ name: `A ${RUN}`, slug: `sec-a-${RUN}`, adminEmail: `admin-a-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin A' })).vendor;
+
+    B = (await vendors.create({ name: `B ${RUN}`, slug: `sec-b-${RUN}`, adminEmail: `admin-b-${RUN}@t.test`, adminPassword: PASSWORD, adminName: 'Admin B' })).vendor;
+
     created.vendorIds.push(A.id, B.id);
     adminA = asUser(await prisma.user.findUniqueOrThrow({ where: { email: `admin-a-${RUN}@t.test` } }));
   });

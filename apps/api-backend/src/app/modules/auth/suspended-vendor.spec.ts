@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
+import { authExtraDeps } from './testing/auth-deps';
 import { VendorService, vendorSuspendedKey } from '../vendor/vendor.service';
 
 /**
@@ -19,6 +20,7 @@ describe('login of a user whose vendor is suspended', () => {
       {} as never,
       {} as never,
       { get: jest.fn(), set: jest.fn(), del: jest.fn() } as never,
+      ...(authExtraDeps() as [never, never, never, never]),
     );
 
   it('is refused (DB state, even if the Redis flag was lost)', async () => {

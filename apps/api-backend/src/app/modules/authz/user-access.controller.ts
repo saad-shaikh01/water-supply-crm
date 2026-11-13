@@ -5,6 +5,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { UserPermissionService } from './user-permission.service';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { UpdateOverridesDto } from './dto/update-overrides.dto';
+import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
 
 /**
  * User-scoped access-control endpoints. Shares the /users prefix with UserController
@@ -15,6 +16,7 @@ import { UpdateOverridesDto } from './dto/update-overrides.dto';
 export class UserAccessController {
   constructor(private readonly userPermissions: UserPermissionService) {}
 
+  @BlockWhenImpersonating()
   @Patch(':id/role')
   @RequirePermissions('roles:assign')
   assignRole(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AssignRoleDto) {
@@ -27,6 +29,7 @@ export class UserAccessController {
     return this.userPermissions.getEffective(user, id);
   }
 
+  @BlockWhenImpersonating()
   @Patch(':id/overrides')
   @RequirePermissions('roles:manage_overrides')
   setOverrides(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateOverridesDto) {

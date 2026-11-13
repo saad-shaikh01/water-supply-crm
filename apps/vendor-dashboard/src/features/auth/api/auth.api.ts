@@ -15,6 +15,13 @@ export interface AuthProfile extends AuthUser {
   roleId: string | null;
   permissions: Permission[];
   pagePermissions: PagePermission[];
+  /** Present only inside a super-admin support (impersonation) session. */
+  impersonation?: {
+    sessionId: string;
+    actorName: string;
+    mode: 'READ_ONLY' | 'SUPPORT';
+    expiresAt?: string;
+  };
 }
 
 interface LoginResponse {

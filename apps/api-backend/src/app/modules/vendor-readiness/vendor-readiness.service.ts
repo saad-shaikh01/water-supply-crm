@@ -4,6 +4,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { AuditService } from '../audit/audit.service';
 import { WhatsAppAccountService } from '../whatsapp/whatsapp-account.service';
 import { missingRequired } from '../vendor-branding/vendor-branding.service';
+/** Max vendors whose readiness is computed in parallel by overview(). */export const OVERVIEW_CONCURRENCY = 5;
 
 export type ReadinessStatus = 'DONE' | 'TODO' | 'WARN';
 
@@ -158,30 +159,36 @@ export class VendorReadinessService {
   }
 
   /** Platform admin: take a vendor back to "not live" (customer WhatsApp stops while the gate enforces). */
-  async goOffline(vendorId: string, actor: AuthUser): Promise<ReadinessView> {
+  async goOffline(vendorId: string, actor: AuthUser, reason?: string): Promise<ReadinessView> {
     await this.get(vendorId);
     await this.prisma.vendor.update({ where: { id: vendorId }, data: { goLiveAt: null } });
     this.accounts.invalidate(vendorId);
-    await this.audit.log({ vendorId, userId: actor.userId, userName: actor.name, action: 'GO_OFFLINE', entity: 'Vendor', entityId: vendorId });
+    await this.audit.log({ vendorId, userId: actor.userId, userName: actor.name, action: 'GO_OFFLINE', entity: 'Vendor', entityId: vendorId, changes: reason ? { reason } : undefined });
     return this.get(vendorId);
   }
 
   /** Platform admin overview: every active vendor with how far along it is. */
   async overview() {
     const vendors = await this.prisma.vendor.findMany({ where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'asc' } });
-    const rows = [];
-    for (const v of vendors) {
-      const r = await this.get(v.id);
-      const required = r.items.filter((i) => i.required);
-      rows.push({
-        vendor: r.vendor,
-        live: r.live,
-        ready: r.ready,
-        requiredDone: required.filter((i) => i.status === 'DONE').length,
-        requiredTotal: required.length,
-        open: required.filter((i) => i.status !== 'DONE').map((i) => i.key),
-      });
-    }
+    // Bounded concurrency (each get() is ~7 queries + WhatsApp lookups); result order == vendor order.
+    const rows: Array<{ vendor: ReadinessView['vendor']; live: boolean; ready: boolean; requiredDone: number; requiredTotal: number; open: string[] }> = new Array(vendors.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < vendors.length) {
+        const idx = next++;
+        const r = await this.get(vendors[idx].id);
+        const required = r.items.filter((i) => i.required);
+        rows[idx] = {
+          vendor: r.vendor,
+          live: r.live,
+          ready: r.ready,
+          requiredDone: required.filter((i) => i.status === 'DONE').length,
+          requiredTotal: required.length,
+          open: required.filter((i) => i.status !== 'DONE').map((i) => i.key),
+        };
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(OVERVIEW_CONCURRENCY, vendors.length) }, worker));
     return rows;
   }
 }

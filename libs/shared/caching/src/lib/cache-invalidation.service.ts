@@ -29,6 +29,11 @@ export class CacheInvalidationService {
     await this.cacheManager.del(key);
   }
 
+  /** Public wrapper (used by admin unlock to clear ip-suffixed login lock keys). */
+  async deleteByPattern(pattern: string): Promise<void> {
+    await this.delByPattern(pattern);
+  }
+
   private async delByPattern(pattern: string): Promise<void> {
     try {
       const client = (this.cacheManager as any).store?.client;
@@ -76,6 +81,11 @@ export class CacheInvalidationService {
   /** Invalidate the dashboard overview for a vendor. */
   async invalidateOverview(vendorId: string): Promise<void> {
     await this.cacheManager.del(this.vendorKey(vendorId, `${CACHE_KEYS.DASHBOARD}:overview`));
+  }
+
+  /** Invalidate the SUPER_ADMIN platform dashboard overview (vendor create/suspend/unsuspend/delete/wipe). */
+  async invalidatePlatformDashboard(): Promise<void> {
+    await this.cacheManager.del(CACHE_KEYS.PLATFORM_DASHBOARD_OVERVIEW);
   }
 
   /** Invalidate daily dashboard cache. Pass a date string (YYYY-MM-DD) to target one day, or omit to wipe all daily caches. */

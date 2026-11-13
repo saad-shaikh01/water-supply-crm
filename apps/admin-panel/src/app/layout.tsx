@@ -2,7 +2,11 @@ import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { QueryProvider } from '@water-supply-crm/data-access';
 import { Toaster } from '@water-supply-crm/ui';
 import { ThemeProvider } from '../components/layout/theme-provider';
+import { SessionListener } from '../components/layout/session-listener';
 import './global.css';
+
+// The CSP nonce (src/middleware.ts) is per request, so pages must render dynamically for Next to stamp it on its scripts.
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'WaterCRM — Admin Panel',
@@ -20,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           disableTransitionOnChange
         >
           <QueryProvider>
+            <SessionListener />
             <NuqsAdapter>
               {children}
             </NuqsAdapter>

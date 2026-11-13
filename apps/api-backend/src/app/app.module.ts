@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
+import { MaintenanceGuard } from './modules/platform-settings/maintenance.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { DatabaseModule } from '@water-supply-crm/database';
 import { SharedLoggingModule } from '@water-supply-crm/logging';
@@ -14,6 +16,7 @@ import { VendorModule } from './modules/vendor/vendor.module';
 import { UserModule } from './modules/user/user.module';
 import { AuthzModule } from './modules/authz/authz.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
 import { ProductModule } from './modules/product/product.module';
 import { RouteModule } from './modules/route/route.module';
 import { CustomerModule } from './modules/customer/customer.module';
@@ -56,6 +59,12 @@ import { CustomerDepositsModule } from './modules/customer-deposits/customer-dep
 import { VendorImportModule } from './modules/vendor-import/vendor-import.module';
 import { VendorBrandingModule } from './modules/vendor-branding/vendor-branding.module';
 import { VendorReadinessModule } from './modules/vendor-readiness/vendor-readiness.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { AnnouncementsModule } from './modules/announcements/announcements.module';
+import { ImpersonationModule } from './modules/impersonation/impersonation.module';
+import { ImpersonationGuard } from './modules/impersonation/impersonation.guard';
+import { ImpersonationAuditInterceptor } from './modules/impersonation/impersonation-audit.interceptor';
+import { PlatformObservabilityModule } from './modules/platform-observability/platform-observability.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -71,6 +80,8 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     UserModule,
     AuthzModule,
     AuthModule,
+    PlatformAdminModule,
+    PlatformSettingsModule,
     ProductModule,
     RouteModule,
     CustomerModule,
@@ -113,6 +124,10 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     VendorImportModule,
     VendorBrandingModule,
     VendorReadinessModule,
+    BillingModule,
+    AnnouncementsModule,
+    ImpersonationModule,
+    PlatformObservabilityModule,
   ],
   controllers: [AppController],
   providers: [
@@ -126,6 +141,11 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     //   2. PermissionsGuard — deny-by-default; enforces the route's authorization marker
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // 3. MaintenanceGuard: 503 for everyone but SUPER_ADMIN / exempt routes while maintenance is ON
+    { provide: APP_GUARD, useClass: MaintenanceGuard },
+    //   3. ImpersonationGuard — read-only / blocklist enforcement for support (impersonation) tokens
+    { provide: APP_GUARD, useClass: ImpersonationGuard },
+    { provide: APP_INTERCEPTOR, useClass: ImpersonationAuditInterceptor },
   ],
 })
 export class AppModule implements NestModule {
