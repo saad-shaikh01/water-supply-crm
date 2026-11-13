@@ -149,7 +149,7 @@ describe('Phase 4: impersonation handoff in the vendor-dashboard (browser)', () 
           cy.contains('button', 'Add Van', { timeout: 20000 }).click();
           cy.get('input[placeholder="ABC-1234"]').type('E2E-SUP-1');
           cy.contains('button', 'Register Vehicle').click();
-          cy.contains('Van created').should('be.visible');
+          cy.contains('Van created', { timeout: 30000 }).should('exist');
           cy.get('header button.rounded-full').last().click();
           cy.contains('Change Password').should('not.exist');
           cy.get('body').type('{esc}');

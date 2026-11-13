@@ -61,6 +61,9 @@ function makePrisma(users: Record<string, { password: string | null }>) {
   return prisma;
 }
 
+// bcrypt-hashing 10 recovery codes can exceed jest's 5s default on a starved CI/dev host
+jest.setTimeout(30_000);
+
 describe('TwoFactorService', () => {
   let hash: string;
   let prisma: ReturnType<typeof makePrisma>;

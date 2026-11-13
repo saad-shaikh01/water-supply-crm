@@ -27,7 +27,7 @@ describe('auth and 2FA', () => {
         cy.get('#identifier').clear().type(acct.email);
         cy.get('#password').clear().type('Wrong@12345');
         cy.contains('button', /^Login$/).click();
-        cy.contains(/invalid credentials/i).should('be.visible');
+        cy.get('[data-sonner-toast][data-front="true"]').contains(/invalid credentials/i).should('be.visible');
       }
       // locked: even the correct password is refused (same generic message, so a lock never confirms the account exists)
       cy.task('resetThrottle', null, { log: false });
