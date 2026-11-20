@@ -12,6 +12,8 @@ export interface NotificationLogFilters {
   sheetDate?: string;
   customerId?: string;
   errorCategory?: string;
+  /** DELIVERED | READ | FAILED | PENDING — what Meta reported after accepting a WhatsApp send. */
+  deliveryStatus?: string;
 }
 
 const toParams = (filters?: NotificationLogFilters) => ({
@@ -26,6 +28,7 @@ const toParams = (filters?: NotificationLogFilters) => ({
   sheetDate: filters?.sheetDate || undefined,
   customerId: filters?.customerId || undefined,
   errorCategory: filters?.errorCategory || undefined,
+  deliveryStatus: filters?.deliveryStatus || undefined,
 });
 
 export const notificationLogsApi = {
@@ -35,4 +38,8 @@ export const notificationLogsApi = {
     apiClient.get('/notifications/logs/summary', { params: toParams(filters) }),
   getLogById: (id: string) => apiClient.get(`/notifications/logs/${id}`),
   retry: (id: string) => apiClient.post(`/notifications/logs/${id}/retry`),
+  previewRetryFailed: (filters?: NotificationLogFilters) =>
+    apiClient.post('/notifications/logs/retry-failed/preview', toParams(filters)),
+  retryFailed: (filters: NotificationLogFilters | undefined, includeLegacy: boolean) =>
+    apiClient.post('/notifications/logs/retry-failed', { ...toParams(filters), includeLegacy }),
 };

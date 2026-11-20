@@ -9,6 +9,40 @@ import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { FcmService } from '../fcm/fcm.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
+import { NotificationSettingsService } from './notification-settings.service';
+import { NotificationChannel, NotificationType } from '@prisma/client';
+import type { SendFailure } from '../whatsapp/providers/whatsapp-provider.interface';
+
+/** What a send learned along the way, beyond pass/fail — recorded on the log row. */
+interface SendContext {
+  messageId?: string;
+  failure?: SendFailure;
+}
+
+/**
+ * A send that provably never reached WhatsApp (e.g. the PDF upload dropped) — thrown so BullMQ re-runs the
+ * job with backoff. Only the final attempt writes a FAILED log row, so one receipt is never logged 4 times.
+ */
+export class TransientSendError extends Error {
+  constructor(
+    message: string,
+    readonly failure?: SendFailure,
+  ) {
+    super(message);
+    this.name = 'TransientSendError';
+  }
+}
+
+// Same wording the enqueue-time gate (NotificationLogService.logSkipped) records — the CRM's "Disabled"
+// filter matches on it.
+const DISABLED_BY_VENDOR_REASON = 'Disabled by vendor notification settings';
+
+const WHATSAPP_JOB_NAMES: string[] = [
+  JOB_NAMES.SEND_WHATSAPP,
+  JOB_NAMES.SEND_WHATSAPP_TEMPLATE,
+  JOB_NAMES.SEND_WHATSAPP_PDF,
+  JOB_NAMES.SEND_WHATSAPP_DELIVERY_FAILURE,
+];
 
 // Reason recorded in NotificationLog when the P0 vendor gate (WHATSAPP_GUARD_MODE=enforce) stops a send.
 const VENDOR_BLOCKED_REASON =
@@ -29,6 +63,7 @@ export class NotificationProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly branding: VendorBrandingService,
+    private readonly settings: NotificationSettingsService,
   ) {
     super();
   }
@@ -36,20 +71,57 @@ export class NotificationProcessor extends WorkerHost {
   async process(job: Job): Promise<void> {
     const queuedAt = new Date(job.timestamp);
 
+    // The vendor may have switched this message type off after it was queued (or while a retry was waiting) —
+    // never send, and never retry, something the vendor turned off.
+    if (await this.isDisabledByVendor(job)) {
+      this.logger.log(`Skipping ${job.name} to ${job.data.phoneNumber}: ${DISABLED_BY_VENDOR_REASON}`);
+      await this.writeLog(job, 'SKIPPED', queuedAt, DISABLED_BY_VENDOR_REASON);
+      return;
+    }
+
+    const ctx: SendContext = {};
     try {
-      const failReason = await this.handleJob(job);
+      const failReason = await this.handleJob(job, ctx);
       if (failReason) {
-        await this.writeLog(job, 'FAILED', queuedAt, failReason);
+        await this.writeLog(job, 'FAILED', queuedAt, failReason, ctx);
       } else {
-        await this.writeLog(job, 'SENT', queuedAt, null);
+        await this.writeLog(job, 'SENT', queuedAt, null, ctx);
       }
     } catch (err: any) {
-      await this.writeLog(job, 'FAILED', queuedAt, err?.message ?? 'Unknown error');
+      if (err instanceof TransientSendError && !this.isFinalAttempt(job)) {
+        this.logger.warn(
+          `${job.name} to ${job.data.phoneNumber} hit a transient failure (attempt ${(job.attemptsMade ?? 0) + 1}/${job.opts?.attempts}): ${err.message} — will retry`,
+        );
+        throw err; // BullMQ re-runs it after the backoff; no log row until it finally succeeds or gives up
+      }
+      await this.writeLog(
+        job,
+        'FAILED',
+        queuedAt,
+        err?.message ?? 'Unknown error',
+        err instanceof TransientSendError ? { failure: err.failure } : ctx,
+      );
       throw err;
     }
   }
 
-  private async handleJob(job: Job): Promise<string | null> {
+  private isFinalAttempt(job: Job): boolean {
+    return (job.attemptsMade ?? 0) + 1 >= (job.opts?.attempts ?? 1);
+  }
+
+  /** Fail-open: if the settings lookup itself errors, the send goes ahead exactly as it did before this check existed. */
+  private async isDisabledByVendor(job: Job): Promise<boolean> {
+    const { vendorId, type } = job.data ?? {};
+    if (!WHATSAPP_JOB_NAMES.includes(job.name) || !vendorId || !type) return false;
+    try {
+      return !(await this.settings.isEnabled(vendorId, type as NotificationType, NotificationChannel.WHATSAPP));
+    } catch (e: any) {
+      this.logger.warn(`Notification-settings check failed for vendor ${vendorId}, sending anyway: ${e?.message}`);
+      return false;
+    }
+  }
+
+  private async handleJob(job: Job, ctx: SendContext): Promise<string | null> {
     switch (job.name) {
       case JOB_NAMES.SEND_WHATSAPP: {
         const { phoneNumber, message, entityType, entityId, vendorId } = job.data;
@@ -76,12 +148,16 @@ export class NotificationProcessor extends WorkerHost {
           vendorId?: string;
         };
         if (!(await this.whatsapp.canSendFor(vendorId))) return VENDOR_BLOCKED_REASON;
-        const sent = await this.whatsapp.sendTemplate(vendorId, phoneNumber, templateName, bodyParams);
-        if (sent) {
+        const result = await this.whatsapp.sendTemplateDetailed(vendorId, phoneNumber, templateName, bodyParams);
+        if (result.ok === true) {
+          ctx.messageId = result.messageId;
           this.logger.log(`WhatsApp template "${templateName}" sent to ${phoneNumber}`);
           return null;
         }
-        return `Template "${templateName}" not delivered — WhatsApp not ready, number not registered, or template not yet approved`;
+        ctx.failure = result;
+        const why = this.describeFailure(result);
+        if (result.retryable) throw new TransientSendError(`Template "${templateName}" not delivered — ${why}`, result);
+        return `Template "${templateName}" not delivered — ${why}`;
       }
       case JOB_NAMES.SEND_WHATSAPP_PDF: {
         const { phoneNumber, receiptData, entityType, entityId, vendorId } = job.data;
@@ -98,14 +174,15 @@ export class NotificationProcessor extends WorkerHost {
         });
         // Corrections use `delivery_corrected` (also a DOCUMENT-header template) instead.
         const override = job.data['template'] as { name: string; bodyParams: string[] } | undefined;
-        const sent = await this.whatsapp.sendTemplate(
+        const result = await this.whatsapp.sendTemplateDetailed(
           vendorId,
           phoneNumber,
           override?.name ?? CloudTemplateNames.DELIVERY_RECEIPT,
           override?.bodyParams ?? [receiptData['customerName'] as string, receiptData['customerCode'] as string, formattedDeliveryDate],
           { buffer: pdfBuffer, filename },
         );
-        if (sent) {
+        if (result.ok === true) {
+          ctx.messageId = result.messageId;
           this.logger.log(`WhatsApp PDF sent to ${phoneNumber}`);
           if (entityType === 'DELIVERY_ITEM' && entityId) {
             await this.prisma.dailySheetItem
@@ -113,9 +190,11 @@ export class NotificationProcessor extends WorkerHost {
               .catch((e: Error) => this.logger.warn(`Failed to update whatsappSentAt for item ${entityId}: ${e.message}`));
           }
           return null;
-        } else {
-          return 'PDF not delivered — WhatsApp not ready or number not registered';
         }
+        ctx.failure = result;
+        const why = this.describeFailure(result);
+        if (result.retryable) throw new TransientSendError(`PDF not delivered — ${why}`, result);
+        return `PDF not delivered — ${why}`;
       }
       case JOB_NAMES.SEND_WHATSAPP_DELIVERY_FAILURE: {
         const { phoneNumber, data, entityType, entityId, vendorId } = job.data as {
@@ -171,21 +250,23 @@ export class NotificationProcessor extends WorkerHost {
     }
   }
 
+  private describeFailure(f: { reason: string; code?: string | number }): string {
+    return f.code !== undefined && f.code !== null ? `${f.reason} [${f.code}]` : f.reason;
+  }
+
   private sanitizeForFilename(value: string | undefined | null): string {
     return (value ?? '').trim().replace(/[^a-zA-Z0-9-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
   }
 
   private async writeLog(
     job: Job,
-    status: 'SENT' | 'FAILED',
+    status: 'SENT' | 'FAILED' | 'SKIPPED',
     queuedAt: Date,
     error: string | null,
+    ctx: SendContext = {},
   ): Promise<void> {
     const channel =
-      job.name === JOB_NAMES.SEND_WHATSAPP ||
-      job.name === JOB_NAMES.SEND_WHATSAPP_TEMPLATE ||
-      job.name === JOB_NAMES.SEND_WHATSAPP_PDF ||
-      job.name === JOB_NAMES.SEND_WHATSAPP_DELIVERY_FAILURE ? 'WHATSAPP'
+      WHATSAPP_JOB_NAMES.includes(job.name) ? 'WHATSAPP'
       : job.name === JOB_NAMES.SEND_SMS ? 'SMS'
       : 'FCM';
 
@@ -206,6 +287,12 @@ export class NotificationProcessor extends WorkerHost {
           vendorId: job.data.vendorId ?? null,
           attemptCount: (job.attemptsMade ?? 0) + 1,
           lastError: error,
+          errorCode: ctx.failure?.code !== undefined && ctx.failure?.code !== null ? String(ctx.failure.code) : null,
+          errorStage: ctx.failure?.stage ?? null,
+          retryable: ctx.failure ? ctx.failure.retryable : null,
+          waMessageId: status === 'SENT' ? (ctx.messageId ?? null) : null,
+          // Set when this row is the outcome of a retry from the log page, so the original row can show it.
+          retryOfId: job.data.retryOfLogId ?? null,
           queuedAt,
           sentAt: status === 'SENT' ? now : null,
           failedAt: status === 'FAILED' ? now : null,

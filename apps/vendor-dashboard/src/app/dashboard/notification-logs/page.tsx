@@ -10,6 +10,8 @@ import {
 } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { useCan } from '../../../features/authz/hooks/use-can';
+import { BulkRetryDialog } from '../../../features/notification-logs/components/bulk-retry-dialog';
+import { deliveryBadge, explainError } from '../../../features/notification-logs/lib/explain-error';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { SearchInput } from '../../../components/shared/filters/search-input';
@@ -39,6 +41,30 @@ const STATUS_STYLES: Record<string, string> = {
   SKIPPED: 'bg-amber-500/10 text-amber-400',
 };
 
+const DELIVERY_STYLES: Record<'ok' | 'read' | 'bad', string> = {
+  ok: 'bg-sky-500/10 text-sky-400',
+  read: 'bg-emerald-500/10 text-emerald-400',
+  bad: 'bg-destructive/10 text-destructive',
+};
+
+const DELIVERY_FILTERS = [
+  { key: 'DELIVERED', label: 'Delivered' },
+  { key: 'READ', label: 'Read' },
+  { key: 'FAILED', label: 'Not delivered' },
+  { key: 'PENDING', label: 'No report yet' },
+] as const;
+
+/** What a retried row turned into — `null` means the retry is still queued or backing off. */
+function RetryOutcome({ outcome }: { outcome?: { status: string; error?: string | null } | null }) {
+  if (!outcome) return <span className="text-[10px] text-amber-400">retry queued…</span>;
+  const ok = outcome.status === 'SENT';
+  return (
+    <span className={cn('text-[10px]', ok ? 'text-emerald-400' : 'text-destructive')} title={outcome.error ?? undefined}>
+      retried → {ok ? 'sent' : outcome.status.toLowerCase()}
+    </span>
+  );
+}
+
 const CHANNELS = ['WHATSAPP', 'SMS', 'FCM', 'IN_APP'] as const;
 
 const pillClass = (active: boolean) =>
@@ -59,6 +85,8 @@ export default function NotificationLogsPage() {
   const [status, setStatus] = useState<'all' | 'SENT' | 'FAILED' | 'SKIPPED'>('all');
   const [eventType, setEventType] = useState('all');
   const [errorCategory, setErrorCategory] = useState('all');
+  const [deliveryStatus, setDeliveryStatus] = useState('all');
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [dailySheetId, setDailySheetId] = useState('');
   const [customer, setCustomer] = useState<{ id: string; label: string } | null>(null);
 
@@ -78,7 +106,12 @@ export default function NotificationLogsPage() {
     dateTo: dateTo || undefined,
     search: search || undefined,
   };
-  const filters = { ...baseFilters, status: status === 'all' ? undefined : status };
+  // Status and delivery report narrow the list only — the summary cards keep showing the full split.
+  const filters = {
+    ...baseFilters,
+    status: status === 'all' ? undefined : status,
+    deliveryStatus: deliveryStatus === 'all' ? undefined : deliveryStatus,
+  };
 
   const { data, isLoading } = useNotificationLogs(page, 20, filters);
   const { data: summary } = useNotificationLogSummary(baseFilters);
@@ -86,14 +119,14 @@ export default function NotificationLogsPage() {
   const logs: any[] = (data as any)?.data ?? [];
   const meta = (data as any)?.meta;
   const hasFilters = !!(
-    dateFrom || dateTo || sheetDate || status !== 'all' || eventType !== 'all' || errorCategory !== 'all' ||
+    dateFrom || dateTo || sheetDate || status !== 'all' || eventType !== 'all' || errorCategory !== 'all' || deliveryStatus !== 'all' ||
     vanId || dailySheetId || customer || search
   );
 
   const reset = () => {
     void setFrom(null); void setTo(null); void setVanId(null); void setSearch(null);
     setSheetDate(''); setStatus('all'); setEventType('all');
-    setErrorCategory('all'); setDailySheetId(''); setCustomer(null); setPage(1);
+    setErrorCategory('all'); setDeliveryStatus('all'); setDailySheetId(''); setCustomer(null); setPage(1);
   };
   const change = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
 
@@ -176,6 +209,23 @@ export default function NotificationLogsPage() {
             </div>
           )}
 
+          {/* What Meta reported after accepting the sends — hidden until the first delivery report arrives. */}
+          {summary && DELIVERY_FILTERS.some((d) => d.key !== 'PENDING' && (summary.byDelivery?.[d.key] ?? 0) > 0) && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-4">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1">Delivery report</span>
+              {DELIVERY_FILTERS.filter((d) => (summary.byDelivery?.[d.key] ?? 0) > 0).map((d) => (
+                <button
+                  key={d.key}
+                  type="button"
+                  onClick={() => { setDeliveryStatus(deliveryStatus === d.key ? 'all' : d.key); setPage(1); }}
+                  className={cn(pillClass(deliveryStatus === d.key), 'h-7 font-medium')}
+                >
+                  {d.label} · {summary.byDelivery[d.key]}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Filters */}
           <div className="flex flex-wrap items-end gap-3 mb-4">
             <div className="space-y-1 min-w-56">
@@ -244,6 +294,16 @@ export default function NotificationLogsPage() {
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={reset} className="h-8 px-2 rounded-lg text-xs text-muted-foreground">
                 Clear
+              </Button>
+            )}
+            {canRetry && (summary?.byStatus.FAILED ?? 0) > 0 && channel !== 'SMS' && channel !== 'FCM' && channel !== 'IN_APP' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkOpen(true)}
+                className="h-8 px-3 rounded-lg text-xs ml-auto"
+              >
+                <RotateCw className="h-3 w-3 mr-1.5" /> Retry failed…
               </Button>
             )}
           </div>
@@ -332,13 +392,45 @@ export default function NotificationLogsPage() {
                         </td>
                         <td className="py-2.5 pr-4 text-muted-foreground">{log.channel}</td>
                         <td className="py-2.5 pr-4">
-                          <Badge className={cn('text-[9px] font-black px-1.5 border-none', STATUS_STYLES[log.status] ?? 'bg-white/10 text-muted-foreground')}>
-                            {log.status}
-                          </Badge>
-                          {log.retriedAt && <span className="ml-1 text-[10px] text-muted-foreground">retried</span>}
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span className="inline-flex items-center gap-1">
+                              <Badge className={cn('text-[9px] font-black px-1.5 border-none', STATUS_STYLES[log.status] ?? 'bg-white/10 text-muted-foreground')}>
+                                {log.status}
+                              </Badge>
+                              {(() => {
+                                const d = log.status === 'SENT' ? deliveryBadge(log.deliveryStatus) : null;
+                                return d ? (
+                                  <Badge
+                                    title={log.deliveryError ?? undefined}
+                                    className={cn('text-[9px] font-black px-1.5 border-none', DELIVERY_STYLES[d.tone])}
+                                  >
+                                    {d.text}
+                                  </Badge>
+                                ) : null;
+                              })()}
+                            </span>
+                            {log.attemptCount > 1 && (
+                              <span className="text-[10px] text-muted-foreground">{log.attemptCount} attempts</span>
+                            )}
+                            {log.retriedAt && <RetryOutcome outcome={log.retryOutcome} />}
+                            {log.retryOfId && <span className="text-[10px] text-muted-foreground">retry of an earlier failure</span>}
+                          </div>
                         </td>
-                        <td className="py-2.5 pr-4 text-muted-foreground max-w-xs truncate" title={log.lastError ?? ''}>
-                          {log.lastError ?? '—'}
+                        <td className="py-2.5 pr-4 max-w-xs">
+                          {(() => {
+                            // A SENT row can still carry Meta's later "not delivered" report — show that instead.
+                            const failedLater = log.status === 'SENT' && log.deliveryStatus === 'FAILED';
+                            const e = failedLater
+                              ? { label: log.deliveryError ?? 'WhatsApp could not deliver this message', detail: log.deliveryError ?? '', retrySafe: null }
+                              : explainError(log);
+                            return e ? (
+                              <span className={cn('block truncate', failedLater ? 'text-destructive' : 'text-muted-foreground')} title={e.detail || e.label}>
+                                {e.label}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            );
+                          })()}
                         </td>
                         <td className="py-2.5 pr-4">
                           {log.dailySheetId ? (
@@ -402,6 +494,8 @@ export default function NotificationLogsPage() {
           )}
         </CardContent>
       </Card>
+
+      <BulkRetryDialog open={bulkOpen} onOpenChange={setBulkOpen} filters={baseFilters} />
     </div>
   );
 }

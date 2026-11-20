@@ -1,10 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { IWhatsAppProvider, ListTemplatesResult, MetaTemplateRecord, PhoneNumberInfoResult, WhatsAppCredentials } from './whatsapp-provider.interface';
+import { IWhatsAppProvider, ListTemplatesResult, MetaTemplateRecord, PhoneNumberInfoResult, SendResult, WhatsAppCredentials } from './whatsapp-provider.interface';
 import { normalizePhone } from '../phone.util';
 
 const TIMEOUT_MS = 12_000;
 const MAX_RETRIES = 2; // only for HTTP 429/5xx — Meta guarantees these mean "not processed"
 const RETRY_BACKOFF_MS = [500, 1500];
+// Network errors that prove the request never left this server — safe to retry even for a message send.
+const PRE_SEND_NETWORK_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT']);
+
+type PostOutcome =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; retryable: boolean; code?: string | number; reason: string };
 
 @Injectable()
 export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
@@ -150,13 +156,27 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     imageUrl?: string,
     creds?: WhatsAppCredentials,
   ): Promise<boolean> {
-    if (!this.isReady(creds)) return false;
+    return (await this.sendTemplateDetailed(phone, templateName, bodyParams, document, imageUrl, creds)).ok;
+  }
+
+  async sendTemplateDetailed(
+    phone: string,
+    templateName: string,
+    bodyParams: string[],
+    document?: { buffer: Buffer; filename: string },
+    imageUrl?: string,
+    creds?: WhatsAppCredentials,
+  ): Promise<SendResult> {
+    if (!this.isReady(creds)) {
+      return { ok: false, retryable: false, stage: 'config', reason: 'WhatsApp is not configured or enabled' };
+    }
     const to = normalizePhone(phone);
 
     let mediaId: string | null = null;
     if (document) {
-      mediaId = await this.uploadMedia(document.buffer, document.filename, 'application/pdf', `template media for ${to}`, creds);
-      if (!mediaId) return false;
+      const upload = await this.uploadMediaDetailed(document.buffer, document.filename, 'application/pdf', `template media for ${to}`, creds);
+      if (upload.ok === false) return { ok: false, retryable: upload.retryable, stage: 'upload', code: upload.code, reason: upload.reason };
+      mediaId = upload.id;
     }
 
     const components: Array<Record<string, unknown>> = [];
@@ -187,7 +207,7 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
       parameters: safeParams.map((text) => ({ type: 'text', text })),
     });
 
-    const result = await this.postGraph(
+    const outcome = await this.post(
       '/messages',
       {
         messaging_product: 'whatsapp',
@@ -198,8 +218,13 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
       `template "${templateName}" to ${to}`,
       creds,
     );
-    if (result) this.logger.log(`✅ WhatsApp template "${templateName}" sent to ${to}`);
-    return !!result;
+    if (outcome.ok === false) {
+      return { ok: false, retryable: outcome.retryable, stage: 'message', code: outcome.code, reason: outcome.reason };
+    }
+    this.logger.log(`✅ WhatsApp template "${templateName}" sent to ${to}`);
+    const messages = outcome.data['messages'];
+    const messageId = Array.isArray(messages) ? (messages[0] as { id?: unknown } | undefined)?.id : undefined;
+    return { ok: true, messageId: typeof messageId === 'string' ? messageId : undefined };
   }
 
   /** Uploads a document to Meta's /media endpoint, returning the media id (or null on failure). */
@@ -210,30 +235,63 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     context: string,
     creds?: WhatsAppCredentials,
   ): Promise<string | null> {
+    const upload = await this.uploadMediaDetailed(buffer, filename, mimeType, context, creds);
+    return upload.ok === true ? upload.id : null;
+  }
+
+  private async uploadMediaDetailed(
+    buffer: Buffer,
+    filename: string,
+    mimeType: string,
+    context: string,
+    creds?: WhatsAppCredentials,
+  ): Promise<{ ok: true; id: string } | { ok: false; retryable: boolean; code?: string | number; reason: string }> {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('file', new Blob([Uint8Array.from(buffer)], { type: mimeType }), filename);
 
-    const result = await this.postGraph('/media', form, context, creds);
-    return (result?.['id'] as string) ?? null;
+    // An upload only stores a file at Meta — nothing reaches the customer — so ANY network failure is safe to retry.
+    const outcome = await this.post('/media', form, context, creds, { idempotent: true });
+    if (outcome.ok === false) return outcome;
+    const id = outcome.data['id'];
+    if (typeof id !== 'string' || !id) {
+      return { ok: false, retryable: false, reason: 'Meta accepted the upload but returned no media id' };
+    }
+    return { ok: true, id };
+  }
+
+  /** Back-compat wrapper: the parsed response body, or null on any failure. */
+  private async postGraph(path: string, body: unknown, context: string, creds?: WhatsAppCredentials): Promise<Record<string, unknown> | null> {
+    const outcome = await this.post(path, body, context, creds);
+    return outcome.ok === true ? outcome.data : null;
   }
 
   /**
    * Shared POST helper for every outbound Graph API call.
    * - Every call is wrapped in a 12s AbortController timeout, cleared in `finally`.
-   *   Timeouts are NEVER retried — Meta's response never arrived, so it's ambiguous
-   *   whether the request was already processed; retrying risks a duplicate
-   *   WhatsApp message landing on a customer's phone.
-   * - Retries (max 2, backoff 500ms/1500ms) apply only to HTTP 429/5xx, which
-   *   Meta's docs guarantee mean the request was NOT processed.
+   *   A timeout on a message send is NEVER retried — Meta's response never arrived, so it's ambiguous
+   *   whether the request was already processed; retrying risks a duplicate WhatsApp message landing
+   *   on a customer's phone.
+   * - Retries (max 2, backoff 500ms/1500ms) apply to HTTP 429/5xx, which Meta's docs guarantee mean the
+   *   request was NOT processed, and to network failures that provably happened before the request was
+   *   sent (connection refused / DNS / connect timeout). `idempotent` calls (media upload — it stores a
+   *   file, nothing reaches the customer) retry on ANY network failure, including timeouts and resets.
    * - Non-2xx responses have their Graph API error body parsed and logged with
    *   full context (status/code/subcode/message/fbtrace_id) so failures are
    *   diagnosable instead of a bare `false`.
+   * - The outcome carries `retryable` so a queue-level retry can make the same safe/unsafe call.
    */
-  private async postGraph(path: string, body: unknown, context: string, creds?: WhatsAppCredentials): Promise<Record<string, unknown> | null> {
+  private async post(
+    path: string,
+    body: unknown,
+    context: string,
+    creds?: WhatsAppCredentials,
+    opts: { idempotent?: boolean } = {},
+  ): Promise<PostOutcome> {
     const c = this.creds(creds);
     const url = `https://graph.facebook.com/${c.apiVersion}/${c.phoneNumberId}${path}`;
     const isForm = body instanceof FormData;
+    const idempotent = !!opts.idempotent;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       const controller = new AbortController();
@@ -251,7 +309,7 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
         });
 
         if (res.ok) {
-          return await res.json().catch(() => ({}));
+          return { ok: true, data: await res.json().catch(() => ({})) };
         }
 
         const errorBody: any = await res.json().catch(() => null);
@@ -267,21 +325,46 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
           await this.sleep(RETRY_BACKOFF_MS[attempt] ?? 1500);
           continue;
         }
-        return null;
+        return {
+          ok: false,
+          retryable: retriable,
+          code: graphError?.code ?? res.status,
+          reason: String(graphError?.error_data?.details ?? graphError?.message ?? `HTTP ${res.status}`).slice(0, 300),
+        };
       } catch (err: any) {
-        if (err?.name === 'AbortError') {
+        const timedOut = err?.name === 'AbortError';
+        const cause: string | undefined = err?.cause?.code ?? err?.code;
+        const retryable = idempotent || (!timedOut && !!cause && PRE_SEND_NETWORK_CODES.has(cause));
+
+        if (timedOut) {
           this.logger.error(
-            `WhatsApp request timed out after ${TIMEOUT_MS}ms (${context}) — not retried (delivery status unknown, avoiding duplicate send)`,
+            `WhatsApp request timed out after ${TIMEOUT_MS}ms (${context})` +
+              (retryable ? '' : ' — not retried (delivery status unknown, avoiding duplicate send)'),
           );
         } else {
-          this.logger.error(`WhatsApp request failed (${context}): ${err?.message ?? err}`);
+          this.logger.error(
+            `WhatsApp request failed (${context}): ${err?.message ?? err}${cause ? ` [cause=${cause}${err?.cause?.message ? `: ${err.cause.message}` : ''}]` : ''}`,
+          );
         }
-        return null;
+
+        if (retryable && attempt < MAX_RETRIES) {
+          this.logger.warn(`WhatsApp retrying (${context}) — attempt ${attempt + 2}/${MAX_RETRIES + 1} after ${timedOut ? 'timeout' : (cause ?? 'network error')}`);
+          await this.sleep(RETRY_BACKOFF_MS[attempt] ?? 1500);
+          continue;
+        }
+        return {
+          ok: false,
+          retryable,
+          code: timedOut ? 'TIMEOUT' : (cause ?? 'NETWORK'),
+          reason: timedOut
+            ? `Timed out reaching WhatsApp after ${TIMEOUT_MS}ms`
+            : `Network error reaching WhatsApp${cause ? ` (${cause})` : ''}: ${err?.message ?? err}`,
+        };
       } finally {
         clearTimeout(timer);
       }
     }
-    return null;
+    return { ok: false, retryable: false, reason: 'WhatsApp request failed' };
   }
 
   private sleep(ms: number): Promise<void> {

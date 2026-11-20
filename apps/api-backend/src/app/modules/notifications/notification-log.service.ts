@@ -6,15 +6,23 @@ import { PrismaService } from '@water-supply-crm/database';
 import { paginate } from '../../common/helpers/paginate';
 import { normalizePhone } from '../whatsapp/phone.util';
 import { NotificationLogQueryDto } from './dto/notification-log-query.dto';
+import { BulkRetryDto } from './dto/bulk-retry.dto';
+import { retryOptionsFor } from './notification-job-options';
+import { NotificationSettingsService } from './notification-settings.service';
+import { NotificationChannel, NotificationType } from '@prisma/client';
 
 // Cap on delivery items resolved for a van/sheet filter — keeps the `IN (...)` list sane.
 const MAX_ITEM_IDS = 20000;
+// One "Retry all failed" pass handles at most this many rows (run again for more), spaced this far apart.
+const BULK_RETRY_MAX = 300;
+const BULK_RETRY_STAGGER_MS = 600;
 
 @Injectable()
 export class NotificationLogService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationQueue: Queue,
+    private readonly settings: NotificationSettingsService,
   ) {}
 
   async findLogs(vendorId: string, query: NotificationLogQueryDto) {
@@ -31,8 +39,35 @@ export class NotificationLogService {
       this.prisma.notificationLog.count({ where }),
     ]);
 
-    const enriched = await this.attachCustomerAndSheet(vendorId, data);
+    const enriched = await this.attachRetryOutcome(await this.attachCustomerAndSheet(vendorId, data));
     return paginate(enriched, total, page, limit);
+  }
+
+  /**
+   * For rows that were retried: what the retry turned into, so the user does not have to hunt for the new row.
+   * `null` while the retry is still queued / backing off (a row is only written once it succeeds or gives up).
+   */
+  private async attachRetryOutcome<T extends { id: string; retriedAt: Date | null }>(logs: T[]) {
+    const retriedIds = logs.filter((l) => l.retriedAt).map((l) => l.id);
+    const outcomes = retriedIds.length
+      ? await this.prisma.notificationLog.findMany({
+          where: { retryOfId: { in: retriedIds } },
+          orderBy: { createdAt: 'desc' },
+          select: { retryOfId: true, status: true, createdAt: true, lastError: true, deliveryStatus: true },
+        })
+      : [];
+    const latest = new Map<string, (typeof outcomes)[number]>();
+    for (const o of outcomes) if (o.retryOfId && !latest.has(o.retryOfId)) latest.set(o.retryOfId, o);
+
+    return logs.map((log) => {
+      const o = latest.get(log.id);
+      return {
+        ...log,
+        retryOutcome: o
+          ? { status: o.status, at: o.createdAt, error: o.lastError, deliveryStatus: o.deliveryStatus }
+          : null,
+      };
+    });
   }
 
   /**
@@ -42,8 +77,13 @@ export class NotificationLogService {
   async summary(vendorId: string, query: NotificationLogQueryDto) {
     const where = await this.buildWhere(vendorId, query, { ignoreStatus: true });
 
-    const [byStatus, byType, disabled, notDelivered, otherErrors] = await Promise.all([
+    const [byStatus, byDelivery, byType, disabled, notDelivered, otherErrors] = await Promise.all([
       this.prisma.notificationLog.groupBy({ by: ['status'], where, _count: { _all: true } }),
+      this.prisma.notificationLog.groupBy({
+        by: ['deliveryStatus'],
+        where: { AND: [where, { status: 'SENT', channel: 'WHATSAPP' }] },
+        _count: { _all: true },
+      }),
       this.prisma.notificationLog.groupBy({ by: ['eventType'], where, _count: { _all: true } }),
       this.prisma.notificationLog.count({ where: { AND: [where, this.errorClause('DISABLED')] } }),
       this.prisma.notificationLog.count({ where: { AND: [where, this.errorClause('NOT_DELIVERED')] } }),
@@ -53,9 +93,14 @@ export class NotificationLogService {
     const statusCounts: Record<string, number> = { SENT: 0, FAILED: 0, SKIPPED: 0 };
     for (const row of byStatus) statusCounts[row.status] = row._count._all;
 
+    // Of the SENT rows: what Meta later reported. PENDING = accepted by Meta, no delivery report (yet).
+    const deliveryCounts: Record<string, number> = { DELIVERED: 0, READ: 0, FAILED: 0, PENDING: 0 };
+    for (const row of byDelivery) deliveryCounts[row.deliveryStatus ?? 'PENDING'] = row._count._all;
+
     return {
       total: Object.values(statusCounts).reduce((a, b) => a + b, 0),
       byStatus: statusCounts,
+      byDelivery: deliveryCounts,
       byEventType: byType.map((r) => ({ eventType: r.eventType, count: r._count._all })),
       byErrorCategory: { DISABLED: disabled, NOT_DELIVERED: notDelivered, API_ERROR: otherErrors },
     };
@@ -71,6 +116,14 @@ export class NotificationLogService {
     }
     if (log.retriedAt) throw new BadRequestException('This send was already retried');
 
+    // The vendor may have turned this notification off since it failed — don't send what they switched off.
+    const jobData = log.payload as Record<string, unknown>;
+    const type = (jobData['type'] ?? log.eventType) as NotificationType | undefined;
+    if (type && log.channel === 'WHATSAPP') {
+      const enabled = await this.settings.isEnabled(vendorId, type, NotificationChannel.WHATSAPP);
+      if (!enabled) throw new BadRequestException('This notification type is turned off in settings, so it was not retried');
+    }
+
     // Claim first so a double-click cannot queue the message twice.
     const claimed = await this.prisma.notificationLog.updateMany({
       where: { id, retriedAt: null },
@@ -79,12 +132,146 @@ export class NotificationLogService {
     if (!claimed.count) throw new BadRequestException('This send was already retried');
 
     try {
-      await this.notificationQueue.add(log.jobName, log.payload as Record<string, unknown>);
+      await this.enqueueRetry(log.id, log.jobName, log.payload as Record<string, unknown>);
     } catch (err) {
       await this.prisma.notificationLog.update({ where: { id }, data: { retriedAt: null } });
       throw err;
     }
     return { queued: true };
+  }
+
+  /** Re-queues a failed send; the job carries `retryOfLogId` so the row it produces points back at this one. */
+  private enqueueRetry(logId: string, jobName: string, payload: Record<string, unknown>, delayMs = 0) {
+    return this.notificationQueue.add(
+      jobName,
+      { ...payload, retryOfLogId: logId },
+      { ...(retryOptionsFor(jobName) ?? {}), ...(delayMs > 0 ? { delay: delayMs } : {}) },
+    );
+  }
+
+  /**
+   * What "Retry all failed" would do for the current filters — without doing it.
+   *
+   * Only failures whose retry cannot message a customer twice are touched:
+   *  - rows Meta/the network proved never delivered (`retryable = true`) are always safe;
+   *  - older rows (`retryable = null`, written before failures were classified) are counted separately and only
+   *    included when the caller explicitly opts in;
+   *  - rows that failed permanently (`retryable = false`: bad number, template missing…) are never re-sent;
+   *  - a row is skipped when a LATER send to the same recipient for the same delivery already succeeded, when its
+   *    notification type has since been switched off, or when it duplicates another candidate in the same batch.
+   */
+  async previewBulkRetry(vendorId: string, dto: BulkRetryDto) {
+    const plan = await this.planBulkRetry(vendorId, dto);
+    return plan.summary;
+  }
+
+  async bulkRetry(vendorId: string, dto: BulkRetryDto) {
+    const plan = await this.planBulkRetry(vendorId, dto);
+    const targets = [...plan.safe, ...(dto.includeLegacy ? plan.legacy : [])];
+
+    let queued = 0;
+    let failedToQueue = 0;
+    for (const log of targets) {
+      // Claim first (same guard as the single Retry) so overlapping clicks can never queue a row twice.
+      const claimed = await this.prisma.notificationLog.updateMany({
+        where: { id: log.id, retriedAt: null },
+        data: { retriedAt: new Date() },
+      });
+      if (!claimed.count) continue;
+      try {
+        // Staggered so a few hundred retries do not hit Meta's throughput limit in the same second.
+        await this.enqueueRetry(log.id, log.jobName as string, log.payload as Record<string, unknown>, queued * BULK_RETRY_STAGGER_MS);
+        queued++;
+      } catch {
+        failedToQueue++;
+        await this.prisma.notificationLog.update({ where: { id: log.id }, data: { retriedAt: null } });
+      }
+    }
+    return { queued, failedToQueue, ...plan.summary, includedLegacy: !!dto.includeLegacy };
+  }
+
+  private async planBulkRetry(vendorId: string, dto: BulkRetryDto) {
+    const { includeLegacy: _ignored, ...filters } = dto;
+    const base = await this.buildWhere(vendorId, { ...filters, channel: 'WHATSAPP', status: 'FAILED' } as NotificationLogQueryDto);
+    const candidateWhere = { AND: [base, { retriedAt: null, jobName: { not: null } }] };
+
+    const [rows, totalMatching, permanent] = await Promise.all([
+      this.prisma.notificationLog.findMany({
+        where: { AND: [candidateWhere, { OR: [{ retryable: null }, { retryable: true }] }] },
+        orderBy: { createdAt: 'asc' },
+        take: BULK_RETRY_MAX,
+      }),
+      this.prisma.notificationLog.count({ where: candidateWhere }),
+      this.prisma.notificationLog.count({ where: { AND: [candidateWhere, { retryable: false }] } }),
+    ]);
+
+    const usable = rows.filter((r) => r.jobName && r.payload);
+
+    // Later successful sends to the same recipient for the same delivery → nothing left to retry.
+    const recipients = [...new Set(usable.map((r) => r.recipientAddress).filter(Boolean))] as string[];
+    const laterSent = recipients.length
+      ? await this.prisma.notificationLog.findMany({
+          where: {
+            vendorId,
+            channel: 'WHATSAPP',
+            status: 'SENT',
+            recipientAddress: { in: recipients },
+            createdAt: { gte: usable[0].createdAt },
+          },
+          select: { recipientAddress: true, eventType: true, entityId: true, createdAt: true },
+        })
+      : [];
+
+    const enabledByType = new Map<string, boolean>();
+    const isEnabled = async (type: string | undefined) => {
+      if (!type) return true;
+      if (!enabledByType.has(type)) {
+        enabledByType.set(type, await this.settings.isEnabled(vendorId, type as NotificationType, NotificationChannel.WHATSAPP));
+      }
+      return enabledByType.get(type) as boolean;
+    };
+
+    const safe: typeof usable = [];
+    const legacy: typeof usable = [];
+    let disabled = 0;
+    let alreadyDelivered = 0;
+    let duplicate = 0;
+    const seen = new Set<string>();
+
+    for (const row of usable) {
+      const type = ((row.payload as Record<string, unknown>)['type'] ?? row.eventType) as string | undefined;
+      if (!(await isEnabled(type))) { disabled++; continue; }
+
+      const delivered = laterSent.some(
+        (s) =>
+          s.recipientAddress === row.recipientAddress &&
+          (s.eventType ?? null) === (row.eventType ?? null) &&
+          s.createdAt > row.createdAt &&
+          (!row.entityId || s.entityId === row.entityId),
+      );
+      if (delivered) { alreadyDelivered++; continue; }
+
+      const key = `${row.recipientAddress}|${row.eventType}|${row.entityId ?? row.id}`;
+      if (seen.has(key)) { duplicate++; continue; }
+      seen.add(key);
+
+      (row.retryable === true ? safe : legacy).push(row);
+    }
+
+    return {
+      safe,
+      legacy,
+      summary: {
+        matching: totalMatching,
+        /** Failed, never delivered for sure (network/upload) — retried by default. */
+        retryable: safe.length,
+        /** Failed before failures were classified — retried only when `includeLegacy` is sent. */
+        legacy: legacy.length,
+        skipped: { permanent, disabled, alreadyDelivered, duplicate },
+        /** More matching rows than one pass handles — run it again after this finishes. */
+        capped: totalMatching - permanent > rows.length,
+      },
+    };
   }
 
   private errorClause(category: string): any {
@@ -107,7 +294,7 @@ export class NotificationLogService {
   private async buildWhere(vendorId: string, query: NotificationLogQueryDto, opts: { ignoreStatus?: boolean } = {}) {
     const {
       channel, status, eventType, recipientType, recipientId, search, dateFrom, dateTo,
-      vanId, dailySheetId, sheetDate, customerId, errorCategory,
+      vanId, dailySheetId, sheetDate, customerId, errorCategory, deliveryStatus,
     } = query;
 
     const where: any = { vendorId };
@@ -118,6 +305,8 @@ export class NotificationLogService {
     if (recipientType) where.recipientType = recipientType;
     if (recipientId) where.recipientId = recipientId;
     if (errorCategory) and.push(this.errorClause(errorCategory));
+    if (deliveryStatus === 'PENDING') and.push({ status: 'SENT', channel: 'WHATSAPP', deliveryStatus: null });
+    else if (deliveryStatus) where.deliveryStatus = deliveryStatus;
 
     if (search?.trim()) {
       const customers = await this.prisma.customer.findMany({

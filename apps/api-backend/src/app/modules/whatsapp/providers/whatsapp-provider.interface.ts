@@ -24,6 +24,21 @@ export type ListTemplatesResult =
   | { ok: true; templates: MetaTemplateRecord[] }
   | { ok: false; status: number; code: number | null; message: string };
 
+/**
+ * Why a send did not go out. `retryable` is true ONLY when the message provably never reached WhatsApp
+ * (media upload dropped, connection refused, Meta 429/5xx) — re-sending can then never duplicate it.
+ * Timeouts and mid-request connection resets are ambiguous and are never marked retryable.
+ */
+export interface SendFailure {
+  retryable: boolean;
+  stage: 'config' | 'upload' | 'message';
+  code?: string | number;
+  reason: string;
+}
+
+/** `messageId` is Meta's wamid — what the delivery webhook later refers to. */
+export type SendResult = { ok: true; messageId?: string } | ({ ok: false } & SendFailure);
+
 export interface IWhatsAppProvider {
   sendMessage(phone: string, message: string, creds?: WhatsAppCredentials): Promise<boolean>;
   sendDocument(phone: string, pdfBuffer: Buffer, filename: string, caption?: string, creds?: WhatsAppCredentials): Promise<boolean>;
@@ -39,6 +54,15 @@ export interface IWhatsAppProvider {
     imageUrl?: string,
     creds?: WhatsAppCredentials,
   ): Promise<boolean>;
+  /** Same send as `sendTemplate`, but reports WHY it failed and whether trying again is safe. */
+  sendTemplateDetailed(
+    phone: string,
+    templateName: string,
+    bodyParams: string[],
+    document?: { buffer: Buffer; filename: string },
+    imageUrl?: string,
+    creds?: WhatsAppCredentials,
+  ): Promise<SendResult>;
   /** Platform credentials by default; pass `creds` to ask about a specific sender. */
   isReady(creds?: WhatsAppCredentials): boolean;
   /** Reads the sender's own phone-number record (token + number id validity, display number, quality rating). */

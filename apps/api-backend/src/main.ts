@@ -10,6 +10,8 @@ import { AppModule } from './app/app.module';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
+    // The WhatsApp webhook verifies Meta's HMAC over the exact raw bytes (req.rawBody).
+    rawBody: true,
   });
   app.useLogger(app.get(Logger));
   // Behind nginx (VPS deploy) — without this, req.ip resolves to the proxy's

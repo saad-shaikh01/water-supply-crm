@@ -215,6 +215,76 @@ describe('MetaCloudApiProvider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  describe('network failures (sendTemplateDetailed)', () => {
+    const doc = { buffer: Buffer.from('%PDF-'), filename: 'r.pdf' };
+    const netErr = (code: string) => Object.assign(new Error('fetch failed'), { cause: { code } });
+    const run = async (p: Promise<any>) => {
+      await jest.advanceTimersByTimeAsync(5_000);
+      return p;
+    };
+
+    it('retries a dropped media upload and then sends — the reported production failure', async () => {
+      fetchMock
+        .mockRejectedValueOnce(netErr('ECONNRESET'))
+        .mockResolvedValueOnce(jsonResponse(200, { id: 'media-1' }))
+        .mockResolvedValueOnce(jsonResponse(200, { messages: [{ id: 'w' }] }));
+
+      const result = await run(provider.sendTemplateDetailed('923001234567', 'delivery_receipt', ['A', 'L1', 'd'], doc));
+
+      expect(result).toEqual({ ok: true, messageId: 'w' });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock.mock.calls[0][0]).toContain('/media');
+      expect(fetchMock.mock.calls[1][0]).toContain('/media');
+      expect(fetchMock.mock.calls[2][0]).toContain('/messages');
+    });
+
+    it('when the upload keeps failing: not ok, retryable (queue may try again), stage=upload, root cause reported', async () => {
+      fetchMock.mockRejectedValue(netErr('ECONNRESET'));
+      const result = await run(provider.sendTemplateDetailed('923001234567', 'delivery_receipt', ['A'], doc));
+
+      expect(result).toMatchObject({ ok: false, retryable: true, stage: 'upload', code: 'ECONNRESET' });
+      expect(fetchMock).toHaveBeenCalledTimes(3); // 1 + MAX_RETRIES, and the message was never attempted
+    });
+
+    it('a connection reset while SENDING the message is ambiguous: no retry, not retryable (no duplicate sends)', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, { id: 'media-1' })).mockRejectedValueOnce(netErr('ECONNRESET'));
+      const result = await run(provider.sendTemplateDetailed('923001234567', 'delivery_receipt', ['A'], doc));
+
+      expect(result).toMatchObject({ ok: false, retryable: false, stage: 'message', code: 'ECONNRESET' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('connection refused / DNS failures happen before anything is sent, so the message POST retries', async () => {
+      fetchMock.mockRejectedValueOnce(netErr('ENOTFOUND')).mockResolvedValueOnce(jsonResponse(200, { messages: [{ id: 'w' }] }));
+      const result = await run(provider.sendTemplateDetailed('923001234567', 't', ['A']));
+
+      expect(result).toEqual({ ok: true, messageId: 'w' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('a Meta rejection is permanent: not retryable, carries Meta code and details', async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(404, { error: { code: 132001, message: '(#132001) Template name does not exist', error_data: { details: 'template name (x) does not exist in en' } } }),
+      );
+      const result = await provider.sendTemplateDetailed('923001234567', 'x', ['A']);
+
+      expect(result).toEqual({ ok: false, retryable: false, stage: 'message', code: 132001, reason: 'template name (x) does not exist in en' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('Meta 5xx that outlasts the in-call retries is reported retryable', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(503, { error: { code: 2, message: 'Service unavailable' } }));
+      const result = await run(provider.sendTemplateDetailed('923001234567', 't', ['A']));
+
+      expect(result).toMatchObject({ ok: false, retryable: true, stage: 'message', code: 2 });
+    });
+
+    it('sendTemplate (boolean) keeps working on top of it', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, { messages: [{ id: 'w' }] }));
+      expect(await provider.sendTemplate('923001234567', 't', ['A'])).toBe(true);
+    });
+  });
+
   it('returns false on timeout and does not retry', async () => {
     fetchMock.mockImplementation((_url: string, init: any) => {
       return new Promise((_resolve, reject) => {

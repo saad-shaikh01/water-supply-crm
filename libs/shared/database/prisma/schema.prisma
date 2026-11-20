@@ -2034,11 +2034,25 @@ model NotificationLog {
   jobName          String?
   payload          Json?
   retriedAt        DateTime?
+  // Structured failure info (null on older rows, which only have the free-text lastError).
+  errorCode        String? // Meta error code ("132001") or network cause ("ECONNRESET")
+  errorStage       String? // config | upload | message — where the send stopped
+  retryable        Boolean? // true = provably never reached WhatsApp, so re-sending cannot duplicate it
+  // What Meta reports AFTER accepting the message (delivery webhook) — "SENT" above only means accepted.
+  waMessageId      String? // Meta's message id (wamid); the key delivery webhooks are matched on
+  deliveryStatus   String? // DELIVERED | READ | FAILED — null until Meta reports
+  deliveredAt      DateTime?
+  readAt           DateTime?
+  deliveryError    String?
+  // Set on the row a retry produces, pointing at the row that was retried.
+  retryOfId        String?
   createdAt        DateTime  @default(now())
 
   @@index([channel, status])
   @@index([vendorId, createdAt])
   @@index([createdAt])
+  @@index([waMessageId])
+  @@index([retryOfId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

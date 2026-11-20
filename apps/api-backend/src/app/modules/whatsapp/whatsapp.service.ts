@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger } from '@nestjs/common';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import {
   IWhatsAppProvider,
+  SendResult,
   WHATSAPP_PROVIDER,
 } from './providers/whatsapp-provider.interface';
 import { WhatsAppAccountService } from './whatsapp-account.service';
@@ -75,16 +76,66 @@ export class WhatsAppService {
     /** Own rate-limit slot, so two different documents to ONE number (salary slip + receipt) do not block each other. */
     rateLimitScope?: string,
   ): Promise<boolean> {
-    if (!phone || !templateName) return false;
+    const prep = await this.prepareTemplateSend(vendorId, phone, templateName, rateLimitScope);
+    if (prep.ok === false) return false;
+
+    const sent = await this.provider.sendTemplate(phone, prep.templateName, bodyParams, document, imageUrl, prep.route.creds);
+
+    if (sent) {
+      await this.cache.set(prep.rateLimitKey, true, this.RATE_LIMIT_TTL);
+    }
+
+    return sent;
+  }
+
+  /**
+   * Same as `sendTemplate`, but says WHY a send failed and whether retrying is safe. Every refusal made
+   * before anything is sent (no sender, template not approved, rate limit) is non-retryable by design:
+   * retrying would not change the answer, or — for the rate limit — could double-message the customer.
+   */
+  async sendTemplateDetailed(
+    vendorId: string | null | undefined,
+    phone: string,
+    templateName: string,
+    bodyParams: string[],
+    document?: { buffer: Buffer; filename: string },
+    imageUrl?: string,
+    rateLimitScope?: string,
+  ): Promise<SendResult> {
+    const prep = await this.prepareTemplateSend(vendorId, phone, templateName, rateLimitScope);
+    if (prep.ok === false) return { ok: false, retryable: false, stage: 'config', reason: prep.reason };
+
+    const result = await this.provider.sendTemplateDetailed(phone, prep.templateName, bodyParams, document, imageUrl, prep.route.creds);
+
+    if (result.ok) {
+      await this.cache.set(prep.rateLimitKey, true, this.RATE_LIMIT_TTL);
+    }
+
+    return result;
+  }
+
+  /** Routing, brand suffix, template-approval and rate-limit checks shared by both template send paths. */
+  private async prepareTemplateSend(
+    vendorId: string | null | undefined,
+    phone: string,
+    templateName: string,
+    rateLimitScope?: string,
+  ): Promise<
+    | { ok: true; route: NonNullable<Awaited<ReturnType<WhatsAppAccountService['routeFor']>>>; templateName: string; rateLimitKey: string }
+    | { ok: false; reason: string }
+  > {
+    if (!phone || !templateName) return { ok: false, reason: 'Missing phone number or template name' };
     const route = await this.accounts.routeFor(vendorId, `whatsapp.sendTemplate(${templateName})`);
-    if (!route) return false;
+    if (!route) return { ok: false, reason: 'No WhatsApp sender available for this vendor' };
 
     // On a vendor's own account the template name carries its brand suffix (several brands may share one
     // WABA), and a template Meta is KNOWN not to have approved is skipped with a clear log line instead of
     // failing at Meta. Blue Ice (legacy allow-list) is exempt until its template sync has proven accurate.
     if (route.source === 'ACCOUNT' && route.accountId) {
       templateName = templateNameFor(templateName, route.templateSuffix);
-      if (!isLegacyVendor(vendorId) && !(await this.accounts.templateSendable(route.accountId, templateName))) return false;
+      if (!isLegacyVendor(vendorId) && !(await this.accounts.templateSendable(route.accountId, templateName))) {
+        return { ok: false, reason: `Template "${templateName}" is not approved by Meta for this account` };
+      }
     }
 
     // Rate limiting: 1 message per vendor+phone(+scope) per minute
@@ -93,16 +144,10 @@ export class WhatsAppService {
 
     if (isLimited) {
       this.logger.debug(`Rate limited WhatsApp template to ${phone}`);
-      return false;
+      return { ok: false, reason: 'Rate limited — a WhatsApp message was already sent to this number within the last minute' };
     }
 
-    const sent = await this.provider.sendTemplate(phone, templateName, bodyParams, document, imageUrl, route.creds);
-
-    if (sent) {
-      await this.cache.set(rateLimitKey, true, this.RATE_LIMIT_TTL);
-    }
-
-    return sent;
+    return { ok: true, route, templateName, rateLimitKey };
   }
 
   async sendMessage(vendorId: string | null | undefined, phone: string, message: string): Promise<boolean> {

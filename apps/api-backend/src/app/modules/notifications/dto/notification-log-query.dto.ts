@@ -54,6 +54,11 @@ export class NotificationLogQueryDto extends PaginationQueryDto {
   @IsString()
   customerId?: string;
 
+  /** What Meta reported after accepting a WhatsApp send. PENDING = accepted, no delivery report yet. */
+  @IsOptional()
+  @IsIn(['DELIVERED', 'READ', 'FAILED', 'PENDING'])
+  deliveryStatus?: string;
+
   /** Grouped failure reason, matched against lastError. */
   @IsOptional()
   @IsIn(['DISABLED', 'NOT_DELIVERED', 'API_ERROR'])

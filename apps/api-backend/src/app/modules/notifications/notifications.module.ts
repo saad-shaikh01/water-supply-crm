@@ -11,6 +11,8 @@ import { NotificationAdminController } from './notification-admin.controller';
 import { NotificationPortalController } from './notification-portal.controller';
 import { NotificationPreferencesController } from './notification-preferences.controller';
 import { NotificationSettingsController } from './notification-settings.controller';
+import { WhatsAppWebhookController } from './whatsapp-webhook.controller';
+import { WhatsAppStatusService } from './whatsapp-status.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { FcmModule } from '../fcm/fcm.module';
 import { StorageModule } from '../../common/storage/storage.module';
@@ -27,6 +29,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     NotificationPortalController,
     NotificationPreferencesController,
     NotificationSettingsController,
+    WhatsAppWebhookController,
   ],
   providers: [
     NotificationService,
@@ -35,6 +38,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     InAppNotificationService,
     NotificationPreferenceService,
     NotificationSettingsService,
+    WhatsAppStatusService,
   ],
   exports: [NotificationService, InAppNotificationService, NotificationSettingsService],
 })

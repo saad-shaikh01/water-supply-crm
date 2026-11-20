@@ -5,6 +5,7 @@ import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { NotificationType, NotificationChannel } from '@prisma/client';
 import { NotificationSettingsService } from './notification-settings.service';
 import { NotificationLogService } from './notification-log.service';
+import { TRANSIENT_RETRY_OPTS } from './notification-job-options';
 
 /** When both fields are present, the send is gated by the vendor's master switch. */
 interface NotificationGate {
@@ -69,7 +70,7 @@ export class NotificationService {
     return this.notificationQueue.add(
       JOB_NAMES.SEND_WHATSAPP_TEMPLATE,
       { phoneNumber, templateName, bodyParams, ...meta },
-      idempotencyKey ? { jobId: idempotencyKey } : undefined,
+      { ...(idempotencyKey ? { jobId: idempotencyKey } : {}), ...TRANSIENT_RETRY_OPTS },
     );
   }
 
@@ -88,6 +89,7 @@ export class NotificationService {
     return this.notificationQueue.add(
       JOB_NAMES.SEND_WHATSAPP_PDF,
       { phoneNumber, receiptData, ...meta, ...(template ? { template } : {}) },
+      TRANSIENT_RETRY_OPTS,
     );
   }
 

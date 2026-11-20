@@ -1,6 +1,7 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { NotificationLogService } from './notification-log.service';
 import { NotificationLogQueryDto } from './dto/notification-log-query.dto';
+import { BulkRetryDto } from './dto/bulk-retry.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -27,6 +28,26 @@ export class NotificationAdminController {
   @Get('logs/summary')
   summary(@CurrentUser() user: AuthUser, @Query() query: NotificationLogQueryDto) {
     return this.logService.summary(user.vendorId, query);
+  }
+
+  /**
+   * POST /notifications/logs/retry-failed/preview
+   * Dry run of "Retry all failed" for the current filters: how many would be retried and why others are skipped.
+   */
+  @Post('logs/retry-failed/preview')
+  @RequirePermissions('notifications:configure')
+  previewRetryFailed(@CurrentUser() user: AuthUser, @Body() dto: BulkRetryDto) {
+    return this.logService.previewBulkRetry(user.vendorId, dto);
+  }
+
+  /**
+   * POST /notifications/logs/retry-failed
+   * Re-queue every failed WhatsApp send matching the filters that is safe to resend (see previewBulkRetry).
+   */
+  @Post('logs/retry-failed')
+  @RequirePermissions('notifications:configure')
+  retryFailed(@CurrentUser() user: AuthUser, @Body() dto: BulkRetryDto) {
+    return this.logService.bulkRetry(user.vendorId, dto);
   }
 
   /**
