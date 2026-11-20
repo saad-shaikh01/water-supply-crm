@@ -343,3 +343,16 @@ implement without a fresh decision:
   `scripts/inspect-balance-reminder-schedule.mjs` were left in place — removing them needs a
   destructive `DROP TABLE`, kept out of a feature phase. The stale `/schedule` line in the RBAC
   catalog was corrected to point at `/config`.
+
+## Download statements (no WhatsApp)
+
+Permission: `balance_reminders:download_statements` (Vendor Admin by default; grant to others via role/user overrides).
+
+- UI: "Download Statements" card on `/dashboard/balance-reminders` -> "Preview & Download" modal (tick/untick customers).
+- Audience: every customer matching the filters EXCEPT inactive ones. Cooldown, invalid/missing phone, balance and
+  "new customer" rules do not apply. Nothing is sent, no `ReminderSendLog` row is written, no cooldown key is set.
+- Flow: `POST /balance-reminders/download-statements/preview` -> `POST /balance-reminders/download-statements` (starts a
+  background job, max 300 customers, 4 PDFs rendered in parallel, one job per vendor) -> poll
+  `GET .../download-statements/:jobId` -> `GET .../:jobId/file` (a single PDF, or a ZIP). State and file live in Redis for 30 min.
+- Customers whose PDF fails are listed in the modal and in `NOT_GENERATED.txt` inside the ZIP.
+- Code: `statement-download.service.ts` (ZIP built with `fflate`).

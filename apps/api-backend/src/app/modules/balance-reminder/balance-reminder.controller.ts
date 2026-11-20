@@ -13,14 +13,59 @@
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { BalanceReminderService } from './balance-reminder.service';
-import { SendNowDto, SendTargetedDto, PreviewDto, PreviewMessageDto, UpdateBalanceReminderConfigDto } from './dto/schedule-reminder.dto';
+import { StatementDownloadService } from './statement-download.service';
+import {
+  SendNowDto, SendTargetedDto, PreviewDto, PreviewMessageDto, UpdateBalanceReminderConfigDto,
+  StatementDownloadPreviewDto, StatementDownloadStartDto,
+} from './dto/schedule-reminder.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('balance-reminders')
 export class BalanceReminderController {
-  constructor(private readonly reminderService: BalanceReminderService) {}
+  constructor(
+    private readonly reminderService: BalanceReminderService,
+    private readonly statementDownloads: StatementDownloadService,
+  ) {}
+
+  // ─── Statement download (no WhatsApp, no send-log) ─────────────────────────
+
+  /** POST /balance-reminders/download-statements/preview — who a download would cover (active customers only). */
+  @Post('download-statements/preview')
+  @RequirePermissions('balance_reminders:download_statements')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
+  previewStatementDownload(@CurrentUser() user: AuthUser, @Body() dto: StatementDownloadPreviewDto) {
+    return this.statementDownloads.preview(user.vendorId, dto);
+  }
+
+  /** POST /balance-reminders/download-statements — start rendering; poll the returned jobId. */
+  @Post('download-statements')
+  @RequirePermissions('balance_reminders:download_statements')
+  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 6 } })
+  startStatementDownload(@CurrentUser() user: AuthUser, @Body() dto: StatementDownloadStartDto) {
+    return this.statementDownloads.start(user.vendorId, dto);
+  }
+
+  /** GET /balance-reminders/download-statements/:jobId — progress + failed-customer list. */
+  @Get('download-statements/:jobId')
+  @RequirePermissions('balance_reminders:download_statements')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 120 } })
+  getStatementDownloadStatus(@CurrentUser() user: AuthUser, @Param('jobId') jobId: string) {
+    return this.statementDownloads.getStatus(user.vendorId, jobId);
+  }
+
+  /** GET /balance-reminders/download-statements/:jobId/file — the PDF (1 customer) or ZIP. */
+  @Get('download-statements/:jobId/file')
+  @RequirePermissions('balance_reminders:download_statements')
+  @Throttle({ short: { ttl: 1000, limit: 2 }, medium: { ttl: 60000, limit: 20 } })
+  async downloadStatementFile(@CurrentUser() user: AuthUser, @Param('jobId') jobId: string, @Res() res: Response) {
+    const file = await this.statementDownloads.getFile(user.vendorId, jobId);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+    res.setHeader('Content-Length', file.buffer.length);
+    res.end(file.buffer);
+  }
 
   /**
    * GET /balance-reminders/config

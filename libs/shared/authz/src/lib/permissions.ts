@@ -223,7 +223,10 @@ export const PERMISSION_CATALOG = {
   balance_reminders: {
     label: 'Balance Reminders',
     navigable: true,
-    actions: ['page', 'view', 'send', 'configure'],
+    // `download_statements` (owner-requested 2026-11-20): download customers' statement PDFs
+    // (single PDF or ZIP) to the browser instead of WhatsApp-ing them. VENDOR_ADMIN-only by
+    // default (via `*`); an admin can grant it to other users through role/user overrides.
+    actions: ['page', 'view', 'send', 'configure', 'download_statements'],
   },
   audit_logs: { label: 'Audit Logs', navigable: true, actions: ['page', 'view'] },
   settings: { label: 'Settings', navigable: true, actions: ['page', 'view', 'update'] },

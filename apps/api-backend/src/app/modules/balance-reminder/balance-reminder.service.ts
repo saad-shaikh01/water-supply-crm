@@ -1059,7 +1059,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
    * vanId and dayOfWeek combine into a single `some` so both must match the SAME
    * schedule entry (e.g. "Van A on Monday", not "Van A any day AND any van Monday").
    */
-  private scheduleFilter(vanId?: string, dayOfWeek?: number) {
+  scheduleFilter(vanId?: string, dayOfWeek?: number) {
     if (!vanId && !dayOfWeek) return {};
     return {
       deliverySchedules: {
@@ -1349,7 +1349,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
    * Generate the monthly statement PDF for a customer.
    * Returns null on any error so the reminder still sends as plain text.
    */
-  private async generateStatementPdf(vendorId: string, customerId: string, month: string): Promise<{ buffer: Buffer; filename: string } | null> {
+  async generateStatementPdf(vendorId: string, customerId: string, month: string): Promise<{ buffer: Buffer; filename: string } | null> {
     try {
       const [year, mon] = month.split('-').map(Number);
       const startDate = new Date(year, mon - 1, 1);

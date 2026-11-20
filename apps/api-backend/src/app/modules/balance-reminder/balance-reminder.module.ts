@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BalanceReminderService } from './balance-reminder.service';
+import { StatementDownloadService } from './statement-download.service';
 import { BalanceReminderController } from './balance-reminder.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { StorageModule } from '../../common/storage/storage.module';
@@ -13,7 +14,7 @@ import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-
     NotificationsModule,
   ],
   controllers: [BalanceReminderController],
-  providers: [BalanceReminderService, CustomerStatementPdfService],
+  providers: [BalanceReminderService, StatementDownloadService, CustomerStatementPdfService],
   exports: [BalanceReminderService],
 })
 export class BalanceReminderModule {}

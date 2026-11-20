@@ -262,3 +262,50 @@ export class UpdateBalanceReminderConfigDto {
   @Min(0)
   warningMinBalance?: number;
 }
+
+/**
+ * Body of POST /balance-reminders/download-statements/preview — which customers a
+ * statement download would cover. Nothing is sent over WhatsApp and nothing is logged.
+ */
+export class StatementDownloadPreviewDto {
+  /** single/selected = explicit `customerIds`; eligible = every customer matching the filters. */
+  @IsIn(['single', 'selected', 'eligible'])
+  mode!: 'single' | 'selected' | 'eligible';
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  customerIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be in YYYY-MM format' })
+  month?: string;
+
+  @IsOptional()
+  @IsIn(['MONTHLY', 'CASH'])
+  paymentType?: 'MONTHLY' | 'CASH';
+
+  @IsOptional()
+  @IsString()
+  vanId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(6)
+  dayOfWeek?: number;
+}
+
+/** Body of POST /balance-reminders/download-statements — the final customer list to render. */
+export class StatementDownloadStartDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  customerIds!: string[];
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be in YYYY-MM format' })
+  month?: string;
+}

@@ -24,6 +24,7 @@ import {
   useUpdateReminderConfig,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
 import { MessagePreviewDialog } from '../../../features/balance-reminders/components/message-preview-dialog';
+import { StatementDownloadCard } from '../../../features/balance-reminders/components/statement-download-card';
 import { balanceRemindersApi } from '../../../features/balance-reminders/api/balance-reminders.api';
 import { useCustomerSearch } from '../../../features/customers/hooks/use-customers';
 import { useAllVans } from '../../../features/vans/hooks/use-vans';
@@ -139,6 +140,7 @@ export default function BalanceRemindersPage() {
   const { data: warningConfig } = useReminderConfig();
   const { mutate: updateConfig, isPending: isSavingConfig } = useUpdateReminderConfig();
   const canConfigure = useCan('balance_reminders:configure');
+  const canDownloadStatements = useCan('balance_reminders:download_statements');
 
   // Manual send state
   const [sendType, setSendType] = useState<SendType>('reminder');
@@ -780,6 +782,8 @@ export default function BalanceRemindersPage() {
               </p>
             </CardContent>
           </Card>
+
+          {canDownloadStatements && <StatementDownloadCard />}
 
           {/* Overdue Warning Settings */}
           {canConfigure && (

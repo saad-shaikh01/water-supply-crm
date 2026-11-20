@@ -78,7 +78,55 @@ export interface ReminderMessagePreview {
   notes: string[];
 }
 
+// ── Statement download (PDF / ZIP — nothing is sent on WhatsApp, nothing is logged) ──
+export interface StatementDownloadPreviewPayload {
+  mode: 'single' | 'selected' | 'eligible';
+  customerIds?: string[];
+  month?: string;
+  paymentType?: PaymentTypeFilter;
+  vanId?: string;
+  dayOfWeek?: number;
+}
+
+export interface StatementDownloadCustomer {
+  customerId: string;
+  name: string;
+  customerCode: string;
+  phone: string;
+  balance: number;
+  paymentType: string;
+}
+
+export interface StatementDownloadPreview {
+  month: string;
+  limit: number;
+  total: number;
+  overLimit: boolean;
+  customers: StatementDownloadCustomer[];
+  skippedInactive: StatementDownloadCustomer[];
+}
+
+export interface StatementDownloadStatus {
+  jobId: string;
+  state: 'running' | 'done' | 'failed';
+  month: string;
+  total: number;
+  processed: number;
+  generated: number;
+  failed: Array<{ customerId: string; name: string; customerCode: string; reason: string }>;
+  file?: { name: string; contentType: string } | null;
+  error?: string;
+}
+
 export const balanceRemindersApi = {
+  previewStatementDownload: (data: StatementDownloadPreviewPayload) =>
+    apiClient.post<StatementDownloadPreview>('/balance-reminders/download-statements/preview', data),
+  startStatementDownload: (data: { customerIds: string[]; month?: string }) =>
+    apiClient.post<{ jobId: string; total: number; month: string }>('/balance-reminders/download-statements', data),
+  getStatementDownloadStatus: (jobId: string) =>
+    apiClient.get<StatementDownloadStatus>(`/balance-reminders/download-statements/${jobId}`),
+  getStatementDownloadFile: (jobId: string) =>
+    apiClient.get<Blob>(`/balance-reminders/download-statements/${jobId}/file`, { responseType: 'blob' }),
   previewMessage: (data: PreviewMessagePayload) =>
     apiClient.post<ReminderMessagePreview>('/balance-reminders/preview-message', data),
   previewStatementPdf: (customerId: string, month?: string) =>

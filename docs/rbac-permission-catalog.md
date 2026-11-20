@@ -258,6 +258,7 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `balance_reminders:view` | `GET /balance-reminders/history`, `history/:id`, `config`, `POST /preview` |
 | `balance_reminders:send` | `POST /balance-reminders/send-now`, `send-targeted` (both accept `sendKind: 'reminder' \| 'statement_only' \| 'warning'` — no separate permission per kind) |
 | `balance_reminders:configure` | `PUT /balance-reminders/config` (overdue-warning knobs) |
+| `balance_reminders:download_statements` | `POST /balance-reminders/download-statements/preview`, `POST /balance-reminders/download-statements`, `GET .../download-statements/:jobId` and `.../:jobId/file` — download statement PDFs (ZIP) to the browser; nothing is WhatsApp-ed and no `ReminderSendLog` row is written. **Vendor Admin (`*`) only by default** (owner-requested 2026-11-20); granted to other users via role/user overrides. Frozen total 226 → 227. |
 
 ### 22. Audit Logs — `audit_logs` *(navigable)*
 | Permission | Gates |
@@ -461,8 +462,8 @@ analytics:view  analytics:export
 tickets:view  tickets:reply
 # notifications (2)
 notifications:view  notifications:configure
-# balance_reminders (3)
-balance_reminders:view  balance_reminders:send  balance_reminders:configure
+# balance_reminders (4)
+balance_reminders:view  balance_reminders:send  balance_reminders:configure  balance_reminders:download_statements
 # audit_logs (1)
 audit_logs:view
 # settings (2)
