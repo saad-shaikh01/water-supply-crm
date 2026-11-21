@@ -49,7 +49,16 @@ export interface WipeStep {
   sql: string;
 }
 
+export interface PlanOptions {
+  /** Replaces KEEP_MODELS (Vendor is always kept). */
+  keepModels?: ReadonlySet<string>;
+  /** Replaces the default partial scopes (default: every user except VENDOR_ADMIN). */
+  partialScope?: Record<string, (alias: string) => string>;
+}
+
 export interface WipePlan {
+  /** Row scope per owned model: SQL boolean over alias `a`, parameter $1 = vendor id. */
+  scopes: Record<string, string>;
   /** Models whose rows are (at least partly) removed, in the order they are deleted. */
   deleteOrder: string[];
   /** `SELECT COUNT(*)` per owned model — the preview. Parameter $1 = vendor id. */
@@ -64,7 +73,9 @@ export interface WipePlan {
 
 const MAX_SCOPE_DEPTH = 8;
 
-export function planVendorWipe(models: readonly DmmfModelLike[]): WipePlan {
+export function planVendorWipe(models: readonly DmmfModelLike[], options: PlanOptions = {}): WipePlan {
+  const KEEP = options.keepModels ?? KEEP_MODELS;
+  const PARTIAL = options.partialScope ?? PARTIAL_SCOPE;
   const byName = new Map(models.map((m) => [m.name, m]));
   const owningFks = (m: DmmfModelLike) => m.fields.filter((f) => f.kind === 'object' && (f.relationFromFields?.length ?? 0) > 0);
   const hasDirectVendorId = (m: DmmfModelLike) => m.fields.some((f) => f.name === 'vendorId' && f.kind === 'scalar');
@@ -79,11 +90,11 @@ export function planVendorWipe(models: readonly DmmfModelLike[]): WipePlan {
 
   // ── ownership (fixpoint) ──
   const owned = new Set<string>();
-  for (const m of models) if (!KEEP_MODELS.has(m.name) && m.name !== 'Vendor' && hasDirectVendorId(m)) owned.add(m.name);
+  for (const m of models) if (!KEEP.has(m.name) && m.name !== 'Vendor' && hasDirectVendorId(m)) owned.add(m.name);
   for (let changed = true; changed; ) {
     changed = false;
     for (const m of models) {
-      if (owned.has(m.name) || KEEP_MODELS.has(m.name) || m.name === 'Vendor') continue;
+      if (owned.has(m.name) || KEEP.has(m.name) || m.name === 'Vendor') continue;
       if (owningFks(m).some((f) => f.isRequired && owned.has(f.type))) {
         owned.add(m.name);
         changed = true;
@@ -96,7 +107,7 @@ export function planVendorWipe(models: readonly DmmfModelLike[]): WipePlan {
     if (depth > MAX_SCOPE_DEPTH) throw new Error(`Vendor wipe: ownership chain of ${name} is too deep / cyclic`);
     const m = byName.get(name) as DmmfModelLike;
     if (hasDirectVendorId(m)) {
-      const extra = PARTIAL_SCOPE[name];
+      const extra = PARTIAL[name];
       return `${alias}."vendorId" = $1${extra ? ` AND ${extra(alias)}` : ''}`;
     }
     const parts = owningFks(m)
@@ -171,7 +182,7 @@ export function planVendorWipe(models: readonly DmmfModelLike[]): WipePlan {
   }
   // Rows that stay (kept models, and the admin users of a partly-wiped model) must not keep pointing at rows that go.
   for (const m of models) {
-    const partial = owned.has(m.name) && PARTIAL_SCOPE[m.name] !== undefined;
+    const partial = owned.has(m.name) && PARTIAL[m.name] !== undefined;
     if (owned.has(m.name) && !partial) continue;
     if (m.name === 'Vendor') continue;
     for (const f of owningFks(m)) {
@@ -212,7 +223,9 @@ export function planVendorWipe(models: readonly DmmfModelLike[]): WipePlan {
 
   const countSteps = [...owned].sort().map((n) => ({ model: n, sql: `SELECT COUNT(*)::int AS n FROM "${n}" a WHERE ${scope(n, 'a')}` }));
   const deleteSteps = deleteOrder.map((n) => ({ model: n, sql: `DELETE FROM "${n}" a WHERE ${scope(n, 'a')}` }));
-  const kept = models.map((m) => m.name).filter((n) => !owned.has(n) || PARTIAL_SCOPE[n]).sort();
+  const scopes: Record<string, string> = {};
+  for (const n of owned) scopes[n] = scope(n, 'a');
+  const kept = models.map((m) => m.name).filter((n) => !owned.has(n) || PARTIAL[n]).sort();
 
-  return { deleteOrder, countSteps, nullifySteps, deleteSteps, kept };
+  return { scopes, deleteOrder, countSteps, nullifySteps, deleteSteps, kept };
 }
