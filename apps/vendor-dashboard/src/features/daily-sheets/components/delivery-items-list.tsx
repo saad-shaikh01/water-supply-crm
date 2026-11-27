@@ -9,7 +9,7 @@ import {
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ArrowRightLeft, Ban, CalendarClock, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
-  Droplet, Flag, History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, ShieldAlert, StickyNote, Truck, Unlock, X,
+  Droplet, Flag, History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Printer, Send, ShieldAlert, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -23,6 +23,7 @@ import { ConversationThread } from '../../communication/components/conversation-
 import { DeliveryItemHistoryDialog } from './delivery-item-history-dialog';
 import { CustomerFlagIcons, flagRowStripeStyle } from '../../customers/components/customer-flag-badge';
 import { CustomerFlagsDialog } from '../../customers/components/customer-flags-dialog';
+import { useReceiptPrintStore } from '../../receipt-printing/lib/receipt-print.store';
 
 // 'moved_out' is not a status filter — its rows come from an entirely
 // separate source (sheet-detail.tsx's movedOutItems), passed in as
@@ -323,6 +324,8 @@ export function DeliveryItemsList({
   const [historyItem, setHistoryItem] = useState<DeliveryItem | null>(null);
   const [flagItem, setFlagItem] = useState<DeliveryItem | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const openReceiptPrint = useReceiptPrintStore((s) => s.openReceipt);
+  const openPrinterSetup = useReceiptPrintStore((s) => s.openSetup);
 
   // Deep-link scroll + highlight (Phase 6). The row container is mounted for
   // every item in `paginatedItems` regardless of expanded state, so once
@@ -458,6 +461,16 @@ export function DeliveryItemsList({
               </SelectContent>
             </Select>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full font-bold text-xs h-8 gap-1.5"
+            onClick={openPrinterSetup}
+            aria-label="Printer setup"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Printer</span>
+          </Button>
           {canBulkMove && selectMode && eligibleFilteredIds.length > 0 && (
             <Button
               size="sm"
@@ -1090,6 +1103,17 @@ export function DeliveryItemsList({
                                   <Download className="h-3.5 w-3.5" />
                                 )}
                                 Receipt
+                              </Button>
+                            )}
+                            {item.status === 'COMPLETED' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full font-bold gap-1.5 text-xs h-8 text-indigo-600 border-indigo-500/30 hover:bg-indigo-500/10"
+                                onClick={(e) => { e.stopPropagation(); openReceiptPrint(item.id); }}
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                                Print Receipt
                               </Button>
                             )}
                             {item.status === 'COMPLETED' && customer?.phoneNumber && (

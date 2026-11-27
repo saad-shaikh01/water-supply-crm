@@ -18,6 +18,7 @@ import {
 import { customersApi } from '../../customers/api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
 import { useAuthStore } from '../../../store/auth.store';
+import { offerReceiptAfterDelivery } from '../../receipt-printing/lib/receipt-print.store';
 
 export const useDailySheets = () => {
   const user = useAuthStore((s) => s.user);
@@ -133,11 +134,12 @@ export const useUpdateDeliveryItem = (sheetId: string) => {
     retry: 2,
     mutationFn: ({ itemId, data }: { itemId: string; data: Record<string, unknown> & { forceResubmit?: boolean } }) =>
       dailySheetsApi.updateDeliveryItem(itemId, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['sheets'] });
       queryClient.invalidateQueries({ queryKey: ['delivery-issues'] });
       toast.success('Delivery recorded');
+      offerReceiptAfterDelivery(response?.data);
     },
     onError: (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       // Gate violations (COLLECTION_POLICY_VIOLATION, CASH_COLLECTION_POLICY_VIOLATION,
@@ -158,10 +160,11 @@ export const useAddAdhocItem = (sheetId: string) => {
   return useMutation({
     mutationFn: (data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; filledReceived: number; cashCollected: number; priceOverride?: number }) =>
       dailySheetsApi.addAdhocItem(sheetId, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['sheets'] });
       toast.success('Ad-hoc delivery recorded');
+      offerReceiptAfterDelivery(response?.data);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add delivery'),
   });
@@ -190,7 +193,7 @@ export const useRecordWalkInDelivery = () => {
   return useMutation({
     mutationFn: (data: import('../api/daily-sheets.api').RecordWalkInDeliveryData) =>
       dailySheetsApi.recordWalkIn(data),
-    onSuccess: () => {
+    onSuccess: (item) => {
       queryClient.invalidateQueries({ queryKey: ['sheets'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -198,6 +201,7 @@ export const useRecordWalkInDelivery = () => {
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Walk-in delivery recorded');
+      offerReceiptAfterDelivery(item);
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Failed to record walk-in delivery'),

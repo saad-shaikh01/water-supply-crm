@@ -61,7 +61,9 @@ import {
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
-import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
+import { DeliveryReceiptPdfService, receiptDeliveryAmount } from '../whatsapp/delivery-receipt-pdf.service';
+import type { DocBranding } from '../../common/pdf/doc-branding';
+import type { ReceiptPrintData } from '@water-supply-crm/types';
 import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
@@ -5853,7 +5855,11 @@ export class DailySheetService implements OnModuleInit {
         customerName: item.customer.name,
         customerCode: item.customer.customerCode,
         productName: item.product.name,
-        van: item.dailySheet.van?.plateNumber,
+        // Walk-in sheets hang off an internal placeholder van (plate = prefix + vendor id): print
+        // what the walk-in WhatsApp receipt prints instead.
+        van: item.dailySheet.van?.plateNumber.startsWith(DailySheetService.WALK_IN_VAN_PLATE_PREFIX)
+          ? 'Self Pickup'
+          : item.dailySheet.van?.plateNumber,
         filledDropped: item.filledDropped,
         emptyReceived: item.emptyReceived,
         filledReceived: item.filledReceived,
@@ -5913,9 +5919,23 @@ export class DailySheetService implements OnModuleInit {
     };
   }
 
-  async getDeliveryReceiptPdf(vendorId: string, itemId: string): Promise<Buffer> {
+  /** `branding` is required: omitting it would print the legacy default identity on every vendor's receipt. */
+  async getDeliveryReceiptPdf(vendorId: string, itemId: string, branding: DocBranding): Promise<Buffer> {
     const { receiptData } = await this.buildHistoricalReceiptData(vendorId, itemId);
-    return this.deliveryReceiptPdf.generate(receiptData);
+    return this.deliveryReceiptPdf.generate(receiptData, branding);
+  }
+
+  /** The same frozen snapshot as the PDF, as data for the dashboard's thermal printer renderer. */
+  async getDeliveryReceiptData(vendorId: string, itemId: string): Promise<ReceiptPrintData> {
+    const { receiptData } = await this.buildHistoricalReceiptData(vendorId, itemId);
+    const { vendorName: _vendorName, depositCash, depositBottles, ...figures } = receiptData;
+    return {
+      ...figures,
+      filledReceived: figures.filledReceived ?? 0,
+      deliveryAmount: receiptDeliveryAmount(figures),
+      depositCash: depositCash ?? 0,
+      depositBottles: depositBottles ?? 0,
+    };
   }
 
   /**

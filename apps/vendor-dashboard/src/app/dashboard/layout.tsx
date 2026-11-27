@@ -6,6 +6,7 @@ import { ImpersonationBanner } from '../../components/layout/impersonation-banne
 import { DriverMobileNav } from '../../components/layout/driver-mobile-nav';
 import { RouteGuard } from '../../components/authz/route-guard';
 import { LockOverrideProvider } from '../../features/van-cash-ledger/lock-override/lock-override-provider';
+import { ReceiptPrintDialog } from '../../features/receipt-printing/components/receipt-print-dialog';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -43,6 +44,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
       {/* Accounting-period override: one interceptor + dialog for every dashboard page. */}
       <LockOverrideProvider />
+      {/* Thermal receipt printing: one dialog for every delivery-recording flow. */}
+      <ReceiptPrintDialog />
     </NuqsAdapter>
   );
 }

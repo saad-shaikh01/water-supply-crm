@@ -240,6 +240,61 @@ describe('VendorBrandingService', () => {
     });
   });
 
+  describe('resolveForPrint (thermal receipts)', () => {
+    it('sends the vendor identity with the logo inline and never the account note', async () => {
+      prisma.vendorBranding.findUnique.mockResolvedValue(
+        row({
+          logoKey: 'k-print',
+          invoiceFooter: 'Shukriya',
+          paymentAccounts: [{ kind: 'BANK', accountTitle: 'Lorem', bankName: 'HBL', accountNumber: '1234-5678', note: 'internal only' }],
+        }),
+      );
+
+      const b = await service.resolveForPrint('v-lorem');
+
+      expect(b).toEqual({
+        name: 'Lorem Water',
+        payTo: 'Lorem Beverages (Pvt) Ltd',
+        address: 'Lahore',
+        phones: '0300-1111111',
+        email: 'hello@lorem.pk',
+        website: 'lorem.pk',
+        taxLine: 'NTN: 1234567-8',
+        footerNote: 'Shukriya',
+        paymentAccounts: [{ kind: 'BANK', accountTitle: 'Lorem', accountNumber: '1234-5678', bankName: 'HBL', iban: null, branch: null }],
+        logoDataUrl: `data:image/png;base64,${PNG.toString('base64')}`,
+        profileConfigured: true,
+      });
+      expect(JSON.stringify(b)).not.toContain('internal only');
+    });
+
+    it('labels a JPEG logo as JPEG', async () => {
+      prisma.vendorBranding.findUnique.mockResolvedValue(row({ logoKey: 'k-jpg' }));
+      storage.getObjectBuffer.mockResolvedValue(JPEG);
+      expect((await service.resolveForPrint('v-lorem')).logoDataUrl).toMatch(/^data:image\/jpeg;base64,/);
+    });
+
+    it('reads the bundled artwork for the builtin logo', async () => {
+      prisma.vendorBranding.findUnique.mockResolvedValue(row({ logoKey: BUILTIN_LOGO_KEY }));
+      const b = await service.resolveForPrint('v-bi');
+      expect(b.logoDataUrl).toMatch(/^data:image\/png;base64,.{1000,}/);
+      expect(storage.getObjectBuffer).not.toHaveBeenCalled();
+    });
+
+    it('an unavailable logo degrades to null', async () => {
+      prisma.vendorBranding.findUnique.mockResolvedValue(row({ logoKey: 'k-gone' }));
+      storage.getObjectBuffer.mockRejectedValue(new Error('wasabi down'));
+      expect((await service.resolveForPrint('v-lorem')).logoDataUrl).toBeNull();
+    });
+
+    it('flags a vendor without a company profile; enforced gate gives a neutral identity', async () => {
+      process.env['WHATSAPP_GUARD_MODE'] = 'enforce';
+      const b = await service.resolveForPrint('v-lorem');
+      expect(b).toMatchObject({ name: 'Lorem', profileConfigured: false, logoDataUrl: null, paymentAccounts: [] });
+      expect(JSON.stringify(b)).not.toMatch(/DASANI|Meezan|9933/i);
+    });
+  });
+
   describe('get / completeness', () => {
     it('reports what is still missing for go-live and pre-fills suggestions from the vendor', async () => {
       const view = await service.get('v-lorem');

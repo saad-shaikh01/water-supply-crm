@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import type { Prisma, VendorBranding } from '@prisma/client';
-import type { AuthUser } from '@water-supply-crm/types';
+import type { AuthUser, ReceiptPrintBranding } from '@water-supply-crm/types';
+import { readFile } from 'fs/promises';
 import { StorageService } from '../../common/storage/storage.service';
 import { AuditService } from '../audit/audit.service';
 import { evaluateGate, isLegacyVendor } from '../../common/tenant-gate/legacy-vendor-gate';
@@ -15,7 +16,7 @@ import {
 } from '../../common/pdf/doc-branding';
 import { LEGACY_DOC_BRANDING } from '../../common/pdf/legacy-dasani-branding';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
-import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
+import { DeliveryReceiptPdfService, LOGO_PATH } from '../whatsapp/delivery-receipt-pdf.service';
 import { PAYMENT_ACCOUNT_KINDS, UpsertVendorBrandingDto } from './dto/vendor-branding.dto';
 
 /** Sentinel stored in logoKey/iconKey for the Dasani backfill: use the bundled Blue Ice asset. */
@@ -334,6 +335,38 @@ export class VendorBrandingService {
     return value;
   }
 
+  /**
+   * The same identity the PDFs print, shaped for the dashboard's thermal receipt renderer. The logo
+   * travels inline so the browser can draw it on a canvas without cross-origin restrictions.
+   */
+  async resolveForPrint(vendorId: string): Promise<ReceiptPrintBranding> {
+    const [branding, row] = await Promise.all([
+      this.resolveForDocs(vendorId),
+      this.prisma.vendorBranding.findUnique({ where: { vendorId }, select: { vendorId: true } }),
+    ]);
+    return {
+      name: branding.name,
+      payTo: branding.payTo,
+      address: branding.address ?? null,
+      phones: branding.phones ?? null,
+      email: branding.email ?? null,
+      website: branding.website ?? null,
+      taxLine: branding.taxLine ?? null,
+      footerNote: branding.footerNote ?? null,
+      // Field by field: the account's internal note must not reach a printed receipt.
+      paymentAccounts: branding.paymentAccounts.map((a) => ({
+        kind: a.kind,
+        accountTitle: a.accountTitle,
+        accountNumber: a.accountNumber,
+        bankName: a.bankName ?? null,
+        iban: a.iban ?? null,
+        branch: a.branch ?? null,
+      })),
+      logoDataUrl: await this.imageDataUrl(branding.logo),
+      profileConfigured: !!row,
+    };
+  }
+
   /** Row (or draft) -> render-ready branding. Image download failures degrade to "no logo", never to an error. */
   async toDocBranding(row: BrandingRowLike): Promise<DocBranding> {
     const accounts = parsePaymentAccounts(row.paymentAccounts);
@@ -379,6 +412,18 @@ export class VendorBrandingService {
       return buf;
     } catch (err) {
       this.logger.warn(`Could not load branding image ${key}: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  private async imageDataUrl(image: BrandImage): Promise<string | null> {
+    if (!image) return null;
+    try {
+      const buf = image === 'builtin' ? await readFile(LOGO_PATH) : image;
+      const type = sniffImage(buf);
+      return type ? `data:image/${type};base64,${buf.toString('base64')}` : null;
+    } catch (err) {
+      this.logger.warn(`Could not read the bundled logo: ${(err as Error).message}`);
       return null;
     }
   }

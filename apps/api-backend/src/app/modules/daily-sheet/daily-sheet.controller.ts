@@ -211,12 +211,30 @@ export class DailySheetController {
     @Param('id') id: string,
     @Res() res: Response,
   ) {
-    const pdfBuffer = await this.dailySheetService.getDeliveryReceiptPdf(user.vendorId, id);
+    const pdfBuffer = await this.dailySheetService.getDeliveryReceiptPdf(
+      user.vendorId,
+      id,
+      await this.branding.resolveForDocs(user.vendorId),
+    );
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="receipt-${id}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.end(pdfBuffer);
+  }
+
+  /** GET /daily-sheets/items/:id/receipt-data — one delivery's receipt figures, for thermal printing. */
+  @Get('items/:id/receipt-data')
+  @RequirePermissions('daily_sheets:view')
+  getDeliveryReceiptData(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.getDeliveryReceiptData(user.vendorId, id);
+  }
+
+  /** GET /daily-sheets/receipt-print/branding — the caller's vendor identity (logo inline), for thermal printing. */
+  @Get('receipt-print/branding')
+  @RequirePermissions('daily_sheets:view')
+  getReceiptPrintBranding(@CurrentUser() user: AuthUser) {
+    return this.branding.resolveForPrint(user.vendorId);
   }
 
   /**

@@ -37,6 +37,13 @@ export interface DeliveryReceiptData {
   depositBottles?: number;
 }
 
+/** Net of any filled bottles taken back — credited at the same per-bottle rate. */
+export function receiptDeliveryAmount(
+  data: Pick<DeliveryReceiptData, 'filledDropped' | 'filledReceived' | 'pricePerBottle'>,
+): number {
+  return (data.filledDropped - (data.filledReceived ?? 0)) * data.pricePerBottle;
+}
+
 // Blue Ice brand logo — same asset used by the customer statement PDF.
 export const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
 
@@ -106,8 +113,7 @@ export class DeliveryReceiptPdfService {
       this.drawSectionTitle(doc, 'INVOICE');
       doc.y += 8;
 
-      // Net of any filled bottles taken back — credited at the same per-bottle rate.
-      const deliveryAmount = (data.filledDropped - (data.filledReceived ?? 0)) * data.pricePerBottle;
+      const deliveryAmount = receiptDeliveryAmount(data);
       const rows: DetailRow[] = [
         { label: 'Date / Time',       value: `${data.deliveryDate}  ·  ${data.deliveryTime}` },
         { label: 'Customer',          value: data.customerName },
