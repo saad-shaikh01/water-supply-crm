@@ -1526,6 +1526,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
       <DeliveryItemsList
         sheetId={sheetId}
+        sheetDate={data?.date}
         collectionPolicy={data?.collectionPolicy}
         cashCollectionPolicy={data?.cashCollectionPolicy}
         items={items}

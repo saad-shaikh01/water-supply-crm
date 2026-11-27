@@ -81,8 +81,6 @@ export interface PaymentBlockStyle {
   valueFont: number;
   labelDy: number;
   valueDy: number;
-  walletLabelFont: number;
-  walletLabelDy: number;
   walletNumFont: number;
   walletNumDy: number;
 }
@@ -131,8 +129,8 @@ export function paymentBlockHeight(accounts: PaymentAccount[], s: PaymentBlockSt
 
 /**
  * Draws up to N payment cards, two per row, starting at `startY`. Returns the bottom y of the block.
- * With the legacy Dasani accounts (1 BANK without IBAN + 1 EASYPAISA) every coordinate equals the
- * original hand-written layout.
+ * With the legacy Dasani accounts (1 BANK without IBAN + 1 EASYPAISA) the card and bank-row
+ * coordinates equal the original hand-written layout.
  */
 export function drawPaymentCards(
   doc: PDFKit.PDFDocument,
@@ -171,10 +169,19 @@ export function drawPaymentCards(
             .text(val, bx + bw * 0.32, ry + s.valueDy, { width: bw - bw * 0.32, lineBreak: false });
         });
       } else {
-        doc.fillColor(p.muted).font('Helvetica-Bold').fontSize(s.walletLabelFont)
-          .text('ACCOUNT NUMBER', bx, by + s.walletLabelDy, { width: bw, lineBreak: false });
+        // Wallets: title row styled like the bank card, then the number in a larger font.
+        doc.fillColor(p.muted).font('Helvetica-Bold').fontSize(s.labelFont)
+          .text('ACC TITLE', bx, by + s.labelDy, { width: bw * 0.32, lineBreak: false });
+        doc.fillColor(p.navyText).font('Helvetica-Bold').fontSize(s.valueFont)
+          .text(a.accountTitle, bx + bw * 0.32, by + s.valueDy, { width: bw - bw * 0.32, lineBreak: false });
+
+        const ny = by + s.rowStep + s.walletNumDy;
+        // Drop the small label so both texts share a baseline (0.718 = Helvetica ascender).
+        const baselineShift = (s.walletNumFont - s.labelFont) * 0.718;
+        doc.fillColor(p.muted).font('Helvetica-Bold').fontSize(s.labelFont)
+          .text('ACC NO', bx, ny + baselineShift, { width: bw * 0.32, lineBreak: false });
         doc.fillColor(p.navyText).font('Helvetica-Bold').fontSize(s.walletNumFont)
-          .text(a.accountNumber, bx, by + s.walletNumDy, { width: bw, lineBreak: false });
+          .text(a.accountNumber, bx + bw * 0.32, ny, { width: bw - bw * 0.32, lineBreak: false });
       }
     });
     y += rowH + (i + 2 < accounts.length ? s.gap : 0);

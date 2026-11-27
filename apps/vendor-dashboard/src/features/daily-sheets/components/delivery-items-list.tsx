@@ -270,10 +270,13 @@ interface DeliveryItemsListProps {
   onSelectAll: (itemIds: string[]) => void;
   onMoveItem: (itemId: string) => void;
   onMoveSelected: () => void;
+  /** The sheet's delivery date (ISO) — used in the downloaded receipt's file name. */
+  sheetDate?: string;
 }
 
 export function DeliveryItemsList({
   sheetId,
+  sheetDate,
   collectionPolicy,
   cashCollectionPolicy,
   items,
@@ -356,7 +359,8 @@ export function DeliveryItemsList({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `receipt-${item.customer?.customerCode ?? item.id}.pdf`;
+      // e.g. "L3521-2026-11-27.pdf" — the delivery date, same as printed on the receipt.
+      a.download = `${[item.customer?.customerCode ?? item.id, sheetDate?.slice(0, 10)].filter(Boolean).join('-')}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {

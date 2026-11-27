@@ -58,7 +58,7 @@ const PAY_STYLE: PaymentBlockStyle = {
   titleFont: 8.5, titleY: 16, titleDx: 38, titleWSub: 48,
   bodyDx: 10, bodyDy: 38, rowStep: 12,
   labelFont: 6.5, valueFont: 7.5, labelDy: 0, valueDy: -0.5,
-  walletLabelFont: 6.5, walletLabelDy: 0, walletNumFont: 13, walletNumDy: 11,
+  walletNumFont: 13, walletNumDy: 1,
 };
 
 const TYPE_LABEL: Record<string, string> = {

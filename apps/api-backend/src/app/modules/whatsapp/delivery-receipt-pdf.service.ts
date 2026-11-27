@@ -83,7 +83,7 @@ const PAY_STYLE: PaymentBlockStyle = {
   titleFont: 7.5, titleY: 12, titleDx: 30, titleWSub: 38,
   bodyDx: 8, bodyDy: 29, rowStep: 9,
   labelFont: 5.5, valueFont: 6.5, labelDy: 0.5, valueDy: 0,
-  walletLabelFont: 5.5, walletLabelDy: 0.5, walletNumFont: 12, walletNumDy: 9,
+  walletNumFont: 12, walletNumDy: 1,
 };
 
 interface DetailRow {
