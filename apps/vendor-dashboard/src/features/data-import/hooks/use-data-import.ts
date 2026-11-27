@@ -85,6 +85,15 @@ export const useUpdateImportRow = (id: string) => {
   });
 };
 
+export const useRemapVan = (id: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { label: string; van: string | null }) => dataImportApi.remapVan(id, v.label, v.van).then((r) => r.data),
+    // Returned so the mutation stays pending until the fresh preview (and its plan hash) is loaded.
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: [KEY, 'detail', id] }), qc.invalidateQueries({ queryKey: [KEY, 'rows', id] })]),
+  });
+};
+
 export const useExecuteImport = (id: string) => {
   const qc = useQueryClient();
   return useMutation({

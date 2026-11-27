@@ -40,6 +40,17 @@ export interface SchedulePlanSummary {
   vansExisting: number;
   routesToCreate: string[];
   routesExisting: number;
+  /** Absent on previews built before vans could be swapped. */
+  vans?: FileVan[];
+  availableVans?: string[];
+}
+
+export interface FileVan {
+  label: string;
+  van: string;
+  status: 'EXISTING' | 'NEW' | 'INACTIVE' | 'NOT_FOUND' | 'INVALID';
+  changed: boolean;
+  rows: number;
 }
 
 export type ReportScope = 'errors' | 'warnings' | 'problems';
@@ -131,6 +142,7 @@ export interface ImportOptions {
   areaIntoAddress: boolean;
   createMissingVans: boolean;
   vanPrefix: string;
+  vanMap?: Record<string, string>;
   routeFromArea: boolean;
 }
 
@@ -181,6 +193,7 @@ export interface RowIssue {
   code: string;
   field?: string;
   message: string;
+  data?: Record<string, string | number | null>;
 }
 
 export interface ImportRow {
@@ -312,6 +325,8 @@ export const dataImportApi = {
   rows: (id: string, params?: RowsQuery) => apiClient.get<Paginated<ImportRow>>(`/imports/${id}/rows`, { params }),
   updateRow: (id: string, rowId: string, values: Record<string, string | null>) =>
     apiClient.patch<{ planHash: string; summary: PlanSummary }>(`/imports/${id}/rows/${rowId}`, { values }),
+  remapVan: (id: string, label: string, van: string | null) =>
+    apiClient.patch<{ planHash: string; summary: PlanSummary }>(`/imports/${id}/van-mapping`, { label, van }),
   execute: (id: string, data: ExecutePayload) => apiClient.post<{ batchId: string; status: string }>(`/imports/${id}/execute`, data),
   cancel: (id: string) => apiClient.post<{ cancelled: boolean }>(`/imports/${id}/cancel`),
   revertPreview: (id: string) => apiClient.post<RevertPreview>(`/imports/${id}/revert/preview`),

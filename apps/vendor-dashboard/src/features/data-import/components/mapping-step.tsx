@@ -184,7 +184,8 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
           codeStrategy: mapped('customerCode') ? codeStrategy : 'GENERATE',
           defaultPaymentType,
           areaIntoAddress,
-          ...(hasSchedule ? { createMissingVans, vanPrefix: vanPrefix.trim() } : {}),
+          // Van swaps made on the review screen survive a trip back to the mapping.
+          ...(hasSchedule ? { createMissingVans, vanPrefix: vanPrefix.trim(), vanMap: batch.options?.vanMap } : {}),
           ...(!mapped('route') && mapped('area') ? { routeFromArea } : {}),
         },
         saveProfileAs: saveName.trim() || undefined,
@@ -369,11 +370,11 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
               {hasSchedule && (
                 <>
                   <div className="space-y-1.5 max-w-xs">
-                    <Label>Van name prefix (recommended)</Label>
+                    <Label>Van name prefix (optional)</Label>
                     <Input className="h-10 rounded-xl" placeholder="e.g. ACME-" maxLength={12} value={vanPrefix} onChange={(e) => setVanPrefix(e.target.value)} />
                     <p className="text-xs text-muted-foreground">
-                      Van names are unique across all companies on the platform. With prefix <strong>{vanPrefix.trim() || 'ACME-'}</strong>, a file van &ldquo;V1&rdquo; becomes <strong>{(vanPrefix.trim() || 'ACME-') + 'V1'}</strong>.
-                      Leave empty to use the names exactly as written (the preview tells you if one is already taken).
+                      With prefix <strong>{vanPrefix.trim() || 'ACME-'}</strong>, a file van &ldquo;V1&rdquo; becomes <strong>{(vanPrefix.trim() || 'ACME-') + 'V1'}</strong>.
+                      Leave empty to use the names exactly as written. You can also swap any van on the preview screen.
                     </p>
                   </div>
                   <label className="flex items-center gap-2 text-sm">

@@ -132,14 +132,8 @@ describe('customers-opening schedule: validateAndPlan + summarize', () => {
     return { planned, options, summary: def.summarize(planned, options, ctx) };
   };
 
-  it('blocks a van label that belongs to another company, and tells the user to set a prefix', () => {
-    const { planned } = plan([{ Mon: 'V2' }], ctxWith([van('V2', 'someone-else')]));
-    expect(planned[0].action).toBe('SKIP_INVALID');
-    expect(planned[0].issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'VAN_LABEL_TAKEN', message: expect.stringContaining('prefix') })]));
-  });
-
-  it('the prefix gives the vendor its own van names, so the same label no longer clashes', () => {
-    const { planned, summary } = plan([{ Mon: 'V2' }], ctxWith([van('V2', 'someone-else')]), { vanPrefix: 'ACME-' });
+  it('prepends the prefix to new van names', () => {
+    const { planned, summary } = plan([{ Mon: 'V2' }], ctxWith(), { vanPrefix: 'ACME-' });
     expect(planned[0].action).toBe('CREATE');
     expect(summary.schedule?.vansToCreate).toEqual(['ACME-V2']);
   });
@@ -155,6 +149,23 @@ describe('customers-opening schedule: validateAndPlan + summarize', () => {
     expect(plan([{ Mon: 'V9' }], ctxWith(), { createMissingVans: false }).planned[0].issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'VAN_NOT_FOUND' })]));
   });
 
+  it('lets the vendor swap a problem van for an existing one or a new one', () => {
+    const ctx = ctxWith([van('V1', 'v1', false), van('V5')]);
+    const swapped = plan([{ Mon: 'V1' }, { Mon: 'V1; DROP' }], ctx, { vanPrefix: 'ACME-', vanMap: { v1: 'V5', 'v1; drop': 'New 7' } });
+    expect(swapped.planned.map((p) => p.action)).toEqual(['CREATE', 'CREATE']);
+    expect(swapped.summary.schedule).toMatchObject({ vansToCreate: ['New 7'], vansExisting: 1, availableVans: ['V5'] });
+    expect(plan([{ Mon: 'V9' }], ctx, { createMissingVans: false, vanMap: { v9: 'V10' } }).planned[0].action).toBe('CREATE');
+  });
+
+  it('lists every file van with its status, even when all its rows are blocked', () => {
+    const { summary } = plan([{ Mon: 'V1' }, { Mon: 'V1', Tue: 'bad;' }], ctxWith([van('V1', 'v1', false)]));
+    expect(summary.create).toBe(0);
+    expect(summary.schedule?.vans).toEqual([
+      { label: 'bad;', van: 'bad;', status: 'INVALID', changed: false, rows: 1 },
+      { label: 'V1', van: 'V1', status: 'INACTIVE', changed: false, rows: 1 },
+    ]);
+  });
+
   it('summarises schedules, new vans and new routes (counting each once)', () => {
     const { summary } = plan(
       [
@@ -165,7 +176,7 @@ describe('customers-opening schedule: validateAndPlan + summarize', () => {
       ],
       ctxWith([van('V1')], ['Old route']),
     );
-    expect(summary.schedule).toEqual({
+    expect(summary.schedule).toMatchObject({
       customersWithSchedule: 3,
       scheduleEntries: 4,
       vansToCreate: ['V2'],
@@ -194,10 +205,7 @@ function fakeDb(existingVans: ReturnType<typeof van>[] = [], existingRoutes: { i
   };
   const prisma = {
     van: {
-      findMany: async ({ where }: { where: { OR: { plateNumber: { equals: string } }[] } }) => {
-        const wanted = where.OR.map((o) => o.plateNumber.equals.toLowerCase());
-        return state.vans.filter((v) => wanted.includes(v.plateNumber.toLowerCase()));
-      },
+      findMany: async ({ where }: { where: { vendorId: string } }) => state.vans.filter((v) => v.vendorId === where.vendorId),
       create: async ({ data }: { data: { plateNumber: string; vendorId: string } }) => {
         const v = { id: `van-new-${state.vans.length}`, isActive: true, ...data };
         state.vans.push(v);
@@ -285,9 +293,18 @@ describe('customers-opening schedule: execution', () => {
     expect(state.customers[0]).toMatchObject({ routeId: null });
   });
 
-  it('refuses at run time too if a van label now belongs to another company', async () => {
-    const { prisma } = fakeDb([van('ACME-V1', 'someone-else')]);
-    await expect(def.prepareExecution(prisma, 'v1', [cust({ schedule: [{ dayOfWeek: 1, vanLabel: 'V1' }] })], execOptions)).rejects.toMatchObject({ code: 'VAN_LABEL_TAKEN' });
+  it('another company using the same van name does not matter: this company gets its own van', async () => {
+    const { prisma, state } = fakeDb([van('ACME-V1', 'someone-else')]);
+    const exec = await def.prepareExecution(prisma, 'v1', [cust({ schedule: [{ dayOfWeek: 1, vanLabel: 'V1' }] })], execOptions);
+    expect(state.vans.filter((v) => v.vendorId === 'v1').map((v) => v.plateNumber)).toEqual(['ACME-V1']);
+    expect(exec.vanIds.get('acme-v1')).not.toBe('van-ACME-V1');
+  });
+
+  it('creates a van the vendor chose even when missing vans are otherwise not created', async () => {
+    const { prisma, state } = fakeDb();
+    const options = { ...execOptions, createMissingVans: false, vanMap: { v1: 'Chosen' } };
+    await def.prepareExecution(prisma, 'v1', [cust({ schedule: [{ dayOfWeek: 1, vanLabel: 'V1' }] })], options);
+    expect(state.vans.map((v) => v.plateNumber)).toEqual(['Chosen']);
   });
 });
 

@@ -598,6 +598,24 @@ export class ImportService {
     return { planHash, summary: plan };
   }
 
+  /** Use another (or a new) van for one named in the file, then rebuild the plan. Nothing is created until Import. */
+  async remapVan(vendorId: string, id: string, label: string, van: string | null) {
+    const batch = await this.batchOrThrow(vendorId, id);
+    const def = getDefinition(batch.entity);
+    const mapping = batch.mapping as unknown as ImportMapping | null;
+    if (batch.status !== 'MAPPED' || def.asyncPlan || !def.remapVan || !mapping) {
+      throw new ImportError('NOT_EDITABLE', 'Vans can only be changed while the import is waiting for review.', 409);
+    }
+    const options = (await def.remapVan(this.prisma, vendorId, batch.options as never, label, van)) as Record<string, unknown>;
+    // Rows are normalized from their raw cells again, so a previously invalid van name is re-checked too.
+    const { plan, planHash } = await this.buildPlan(vendorId, id, def, mapping, options);
+    await this.prisma.importBatch.update({
+      where: { id },
+      data: { options: json(options), summary: json({ plan } satisfies BatchSummary), planHash, plannedAt: new Date() },
+    });
+    return { planHash, summary: plan };
+  }
+
   async sourceUrl(vendorId: string, id: string) {
     const batch = await this.batchOrThrow(vendorId, id);
     if (!batch.sourceFileKey) throw new ImportError('SOURCE_PURGED', 'The original file is no longer stored.', 404);

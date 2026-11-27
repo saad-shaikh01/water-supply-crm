@@ -126,6 +126,19 @@ export class UpdateImportRowDto {
   values!: Record<string, string | null>;
 }
 
+export class RemapVanDto {
+  /** Van exactly as typed in the file. */
+  @IsString()
+  @MaxLength(500)
+  label!: string;
+
+  /** Existing or new van name; null / omitted goes back to the file's own van. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  van?: string | null;
+}
+
 export class ReportQueryDto {
   /** Omit for the full report; otherwise only the rows that need fixing, laid out for re-upload. */
   @IsOptional()

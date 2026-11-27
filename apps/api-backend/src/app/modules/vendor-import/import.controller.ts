@@ -22,7 +22,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { HISTORY_IMPORT_LIMITS, IMPORT_LIMITS } from './import.constants';
-import { ColumnValuesQueryDto, ExecuteImportDto, ImportListQueryDto, ImportRowsQueryDto, ReportQueryDto, SaveMappingDto, UpdateImportRowDto, UploadImportDto } from './dto/import.dto';
+import { ColumnValuesQueryDto, ExecuteImportDto, ImportListQueryDto, ImportRowsQueryDto, RemapVanDto, ReportQueryDto, SaveMappingDto, UpdateImportRowDto, UploadImportDto } from './dto/import.dto';
 import { ImportErrorFilter } from './import-error.filter';
 import { ImportService } from './import.service';
 import { BlockWhenImpersonating } from '../impersonation/block-when-impersonating.decorator';
@@ -115,6 +115,13 @@ export class ImportController {
   @Throttle({ short: { ttl: 1000, limit: 5 } })
   updateRow(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('rowId') rowId: string, @Body() dto: UpdateImportRowDto) {
     return this.imports.updateRow(user.vendorId, id, rowId, dto.values);
+  }
+
+  @Patch(':id/van-mapping')
+  @RequirePermissions('data_imports:upload')
+  @Throttle({ short: { ttl: 1000, limit: 5 } })
+  remapVan(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RemapVanDto) {
+    return this.imports.remapVan(user.vendorId, id, dto.label, dto.van ?? null);
   }
 
   @Get(':id/report')

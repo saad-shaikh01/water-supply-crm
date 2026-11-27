@@ -109,6 +109,21 @@ export interface SchedulePlanSummary {
   vansExisting: number;
   routesToCreate: string[];
   routesExisting: number;
+  /** One entry per van named in the file, so each can be swapped from the review screen. */
+  vans: FileVan[];
+  /** Names of the company's own active vans. */
+  availableVans: string[];
+}
+
+export interface FileVan {
+  /** Van exactly as typed in the file. */
+  label: string;
+  /** Van it will be saved as. */
+  van: string;
+  status: 'EXISTING' | 'NEW' | 'INACTIVE' | 'NOT_FOUND' | 'INVALID';
+  /** The vendor replaced the file's van. */
+  changed: boolean;
+  rows: number;
 }
 
 export interface HistoryPlanSummary {

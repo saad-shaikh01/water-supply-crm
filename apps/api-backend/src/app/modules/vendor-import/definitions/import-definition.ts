@@ -145,6 +145,9 @@ export interface ImportDefinition<N = unknown, O = unknown, C = unknown, E = unk
   /** Field keys the review screen may edit inline (only fields that are mapped to a column). */
   editableFields?(mapping: ImportMapping, options: O): string[];
 
+  /** Swap a van named in the file for another (null = back to the file's own). Returns the new options. */
+  remapVan?(prisma: PrismaService, vendorId: string, options: O, label: string, target: string | null): Promise<O>;
+
   /** Safe revert of untouched created entities (design doc §5.6). */
   revertRows(prisma: PrismaService, vendorId: string, rows: RevertRowInput[], dryRun: boolean): Promise<RevertOutcome[]>;
 

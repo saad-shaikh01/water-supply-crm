@@ -6,12 +6,13 @@ import {
   Button, Card, CardContent, Input, cn,
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@water-supply-crm/ui';
-import type { ImportDetail, ImportRow, RowsQuery } from '../api/data-import.api';
+import type { FileVan, ImportDetail, ImportRow, RowsQuery } from '../api/data-import.api';
 import { DATA_IMPORT_PERMISSIONS } from '../constants';
 import { useCan } from '../../authz/hooks/use-can';
 import { downloadReport, importErrorOf, useCancelImport, useExecuteImport, useImportRows, useUpdateImportRow } from '../hooks/use-data-import';
 import { RowOutcomeBadge, rupees, rupeesFromPaise } from './format';
 import { HistoryReviewStep } from './history-review';
+import { VanPicker, VansPanel } from './van-mapping';
 
 type Tab = 'all' | 'create' | 'exists' | 'errors' | 'warnings';
 const TABS: { key: Tab; label: string; filter: RowsQuery }[] = [
@@ -26,7 +27,7 @@ const FIELD_LABELS: Record<string, string> = { customerCode: 'Customer code', na
 const SELECT_CLASS = 'h-9 rounded-full border bg-background px-3 text-sm';
 
 /** Inline fix for one row: edits the cells of the uploaded file, then the preview is rebuilt. */
-function RowFixer({ row, fields, batchId, onDone }: { row: ImportRow; fields: string[]; batchId: string; onDone: () => void }) {
+function RowFixer({ row, fields, batchId, vans, availableVans, onDone }: { row: ImportRow; fields: string[]; batchId: string; vans: FileVan[]; availableVans: string[]; onDone: () => void }) {
   const update = useUpdateImportRow(batchId);
   const n = row.normalized;
   const d = row.display;
@@ -40,6 +41,8 @@ function RowFixer({ row, fields, batchId, onDone }: { row: ImportRow; fields: st
   const [draft, setDraft] = useState<Record<string, string>>(initial);
   const [err, setErr] = useState<string | null>(null);
   const changed = fields.filter((f) => draft[f] !== initial[f]);
+  const vanLabels = new Set((row.issues ?? []).flatMap((i) => (i.data?.['van'] ? [String(i.data['van']).toLowerCase()] : [])));
+  const problemVans = vans.filter((v) => vanLabels.has(v.label.toLowerCase()));
 
   const save = async () => {
     setErr(null);
@@ -53,6 +56,14 @@ function RowFixer({ row, fields, batchId, onDone }: { row: ImportRow; fields: st
 
   return (
     <div className="space-y-3 py-1">
+      {problemVans.map((v) => (
+        <div key={v.label} className="rounded-xl border bg-background p-3 space-y-2">
+          <p className="text-xs font-semibold">
+            Van &ldquo;{v.label}&rdquo; <span className="font-normal text-muted-foreground">— a change applies to all {v.rows.toLocaleString()} row(s) using it</span>
+          </p>
+          <VanPicker batchId={batchId} van={v} availableVans={availableVans} onDone={onDone} />
+        </div>
+      ))}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {fields.map((f) => (
           <label key={f} className="text-xs text-muted-foreground space-y-1 block">
@@ -157,6 +168,8 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
         </div>
       )}
 
+      {!!plan.schedule?.vans?.length && <VansPanel batchId={batch.id} vans={plan.schedule.vans} availableVans={plan.schedule.availableVans ?? []} />}
+
       <Card className="rounded-3xl">
         <CardContent className="p-4 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -242,7 +255,7 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
                     </TableRow>
                     {editingId === r.id && rows.data?.editableFields && (
                       <TableRow className="bg-muted/30 hover:bg-muted/30">
-                        <TableCell colSpan={7}><RowFixer row={r} fields={rows.data.editableFields} batchId={batch.id} onDone={() => setEditingId(null)} /></TableCell>
+                        <TableCell colSpan={7}><RowFixer row={r} fields={rows.data.editableFields} batchId={batch.id} vans={plan.schedule?.vans ?? []} availableVans={plan.schedule?.availableVans ?? []} onDone={() => setEditingId(null)} /></TableCell>
                       </TableRow>
                     )}
                     </Fragment>

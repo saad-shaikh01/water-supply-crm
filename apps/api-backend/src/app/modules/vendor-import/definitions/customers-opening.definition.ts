@@ -4,6 +4,7 @@ import { createCustomerRecords } from '../../customer/customer-create.helper';
 import { isSendablePhone, normalizePhone } from '../../whatsapp/phone.util';
 import { ImportError } from '../import.types';
 import type {
+  FileVan,
   ImportFieldDef,
   ImportMapping,
   NormalizedRowResult,
@@ -40,8 +41,10 @@ export interface CustomersOpeningOptions {
   areaIntoAddress: boolean;
   /** Vans named in the file that do not exist yet are created (default on). */
   createMissingVans: boolean;
-  /** Prepended to every van label from the file — van labels are unique across ALL companies. */
+  /** Optional text prepended to every van label from the file. */
   vanPrefix: string;
+  /** Vendor's own replacement for a file van: lower-cased file label -> van name (prefix not applied). */
+  vanMap?: Record<string, string>;
   /** No Route column mapped: use the Area column as the route name. */
   routeFromArea: boolean;
 }
@@ -81,13 +84,13 @@ export interface NormalizedCustomer {
 interface VanRef {
   id: string;
   plateNumber: string;
-  vendorId: string;
   isActive: boolean;
+  isSystem?: boolean;
 }
 
 interface PlanContext {
   vendorId: string;
-  /** lower-cased plate number -> van (any company: plate numbers are globally unique). */
+  /** lower-cased plate number -> this company's van (van names are unique per company). */
   vansByPlate: Map<string, VanRef>;
   /** lower-cased route names this company already has. */
   routeNames: Set<string>;
@@ -138,9 +141,32 @@ const VAN_PREFIX_RE = /^[A-Za-z0-9._/#-]{0,12}$/;
 
 const routeKey = (name: string) => name.trim().toLowerCase();
 
-/** The plate number a file van label is stored under (prefix applied once, case-insensitively). */
-function plateOf(label: string, prefix: string): string {
+const MAX_VAN_MAPPINGS = 200;
+const MAX_VAN_NAME = 100;
+
+/** The vendor's chosen replacement for a file van label, if any. */
+function mappedVan(label: string, options: Pick<CustomersOpeningOptions, 'vanMap'>): string | null {
+  const key = label.trim().toLowerCase();
+  const map = options.vanMap;
+  return map && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null;
+}
+
+function parseVanMap(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const entries = Object.entries(raw as Record<string, unknown>).flatMap(([label, target]) => {
+    const key = label.trim().toLowerCase();
+    const value = typeof target === 'string' ? target.trim() : '';
+    return key && value && value.length <= MAX_VAN_NAME ? [[key, value] as const] : [];
+  });
+  return Object.fromEntries(entries.slice(0, MAX_VAN_MAPPINGS));
+}
+
+/** The plate number a file van label is stored under: the vendor's replacement, else the label with the prefix applied once. */
+function plateOf(label: string, options: Pick<CustomersOpeningOptions, 'vanPrefix' | 'vanMap'>): string {
+  const chosen = mappedVan(label, options);
+  if (chosen) return chosen;
   const l = label.trim();
+  const prefix = options.vanPrefix;
   if (!prefix || l.toLowerCase().startsWith(prefix.toLowerCase())) return l;
   return `${prefix}${l}`;
 }
@@ -352,8 +378,8 @@ function resolveEnum(def: ImportFieldDef, mapping: ImportMapping, cell: unknown)
   return { state: 'unmapped', raw: text };
 }
 
-function err(code: string, message: string, field?: string): RowIssue {
-  return { severity: 'ERROR', code, message, field };
+function err(code: string, message: string, field?: string, data?: RowIssue['data']): RowIssue {
+  return { severity: 'ERROR', code, message, field, ...(data ? { data } : {}) };
 }
 function warn(code: string, message: string, field?: string): RowIssue {
   return { severity: 'WARNING', code, message, field };
@@ -450,6 +476,7 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
       areaIntoAddress: o['areaIntoAddress'] !== false,
       createMissingVans: o['createMissingVans'] !== false,
       vanPrefix,
+      vanMap: parseVanMap(o['vanMap']),
       routeFromArea: o['routeFromArea'] === true && mapped.has('area') && !mapped.has('route'),
     };
   },
@@ -570,8 +597,9 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
     const schedule: ScheduleEntry[] = [];
     const scheduleMapped = headers['van'] !== undefined || DAY_COLUMNS.some((d) => headers[d.key] !== undefined);
     const addVan = (dayOfWeek: number, label: string, field: string) => {
-      if (label.length > MAX_VAN_LABEL || !VAN_LABEL_RE.test(label)) {
-        issues.push(err('VAN_LABEL_INVALID', `Van "${label}" is not a valid van name (letters, numbers, space and . _ - / # only, max ${MAX_VAN_LABEL}).`, field));
+      // A label the vendor already replaced with another van needs no validation of its own.
+      if (!mappedVan(label, options) && (label.length > MAX_VAN_LABEL || !VAN_LABEL_RE.test(label))) {
+        issues.push(err('VAN_LABEL_INVALID', `Van "${label}" is not a valid van name (letters, numbers, space and . _ - / # only, max ${MAX_VAN_LABEL}). Choose or create a van for it.`, field, { van: label }));
         return;
       }
       schedule.push({ dayOfWeek, vanLabel: label });
@@ -649,9 +677,9 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
     return ['customerCode', 'name', 'phone', 'address', 'isActive'].filter((k) => mapped.has(k) && (k !== 'customerCode' || options.codeStrategy === 'USE_FILE_CODES'));
   },
 
-  async loadContext(prisma: PrismaService, vendorId: string, options, rows): Promise<PlanContext> {
+  async loadContext(prisma: PrismaService, vendorId: string): Promise<PlanContext> {
     const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { customerGroupingEnabled: true } });
-    const vansByPlate = await loadVansByPlate(prisma, scheduleLabels(rows ?? []).map((l) => plateOf(l, options.vanPrefix)));
+    const vansByPlate = await loadVansByPlate(prisma, vendorId);
     const routes = await prisma.route.findMany({ where: { vendorId }, select: { name: true } });
     const existing = await prisma.customer.findMany({
       where: { vendorId },
@@ -734,19 +762,16 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
         seenPhones.add(p);
       }
 
-      // Every van the schedule names must be usable by THIS company.
+      // Every van the schedule names must be usable.
       let vanProblem = false;
       for (const label of new Set(n.schedule.map((s) => s.vanLabel))) {
-        const plate = plateOf(label, options.vanPrefix);
-        const van = ctx.vansByPlate.get(plate.toLowerCase());
-        if (van && van.vendorId !== ctx.vendorId) {
-          issues.push(err('VAN_LABEL_TAKEN', `Van "${plate}" is already used by another company's account. Set a van prefix (e.g. "ABC-") in the import options so your vans get their own names.`, 'van'));
+        const plate = plateOf(label, options);
+        const status = vanStatus(label, ctx, options);
+        if (status === 'INACTIVE') {
+          issues.push(err('VAN_INACTIVE', `Van "${plate}" exists but is inactive. Choose another van, create a new one, or reactivate it.`, 'van', { van: label }));
           vanProblem = true;
-        } else if (van && !van.isActive) {
-          issues.push(err('VAN_INACTIVE', `Van "${van.plateNumber}" exists but is inactive. Reactivate it first.`, 'van'));
-          vanProblem = true;
-        } else if (!van && !options.createMissingVans) {
-          issues.push(err('VAN_NOT_FOUND', `Van "${plate}" does not exist. Create it first, or allow the import to create missing vans.`, 'van'));
+        } else if (status === 'NOT_FOUND') {
+          issues.push(err('VAN_NOT_FOUND', `Van "${plate}" does not exist. Choose another van or create it.`, 'van', { van: label }));
           vanProblem = true;
         }
       }
@@ -778,12 +803,14 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
 
     // Routes / vans / schedules this import will create (only when the file carries any).
     const created = planned.filter((p) => p.action === 'CREATE' && p.normalized).map((p) => p.normalized as NormalizedCustomer);
-    if (options && ctx && created.some((n) => n.route || n.schedule.length)) {
+    if (!options || !ctx) return s;
+    const vans = fileVans(planned, options, ctx);
+    if (vans.length || created.some((n) => n.route || n.schedule.length)) {
       const newVans = new Map<string, string>();
       const existingVans = new Set<string>();
       for (const n of created) {
         for (const e of n.schedule) {
-          const plate = plateOf(e.vanLabel, options.vanPrefix);
+          const plate = plateOf(e.vanLabel, options);
           if (ctx.vansByPlate.has(plate.toLowerCase())) existingVans.add(plate.toLowerCase());
           else if (!newVans.has(plate.toLowerCase())) newVans.set(plate.toLowerCase(), plate);
         }
@@ -802,6 +829,11 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
         vansExisting: existingVans.size,
         routesToCreate: [...newRoutes.values()].sort(),
         routesExisting: existingRoutes.size,
+        vans,
+        availableVans: [...ctx.vansByPlate.values()]
+          .filter((v) => v.isActive && !v.isSystem)
+          .map((v) => v.plateNumber)
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
       };
     }
     return s;
@@ -862,7 +894,7 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
 
           const routeId = n.route ? exec.routeIds.get(routeKey(n.route)) ?? null : null;
           const deliverySchedule = (n.schedule ?? []).flatMap((e) => {
-            const vanId = exec.vanIds.get(plateOf(e.vanLabel, options.vanPrefix).toLowerCase());
+            const vanId = exec.vanIds.get(plateOf(e.vanLabel, options).toLowerCase());
             return vanId ? [{ vanId, dayOfWeek: e.dayOfWeek, routeSequence: n.routeSequence }] : [];
           });
 
@@ -923,6 +955,29 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
       }
     }
     return { result: 'FAILED', resultCode: 'CODE_CONFLICT', resultMessage: 'Could not allocate a free customer code.' };
+  },
+
+  async remapVan(prisma: PrismaService, vendorId: string, options, label: string, target: string | null): Promise<CustomersOpeningOptions> {
+    const key = label.trim().toLowerCase();
+    if (!key) throw new ImportError('VAN_MAPPING_INVALID', 'Say which van from the file you want to change.');
+    const vanMap = new Map(Object.entries(options.vanMap ?? {}));
+    const name = target?.trim() ?? '';
+    if (!name) {
+      vanMap.delete(key);
+    } else {
+      const existing = await prisma.van.findFirst({
+        where: { vendorId, plateNumber: { equals: name, mode: 'insensitive' } },
+        select: { plateNumber: true, isActive: true, isSystem: true },
+      });
+      if (existing?.isSystem) throw new ImportError('VAN_MAPPING_INVALID', `"${existing.plateNumber}" is a system van and cannot take delivery schedules.`);
+      if (existing && !existing.isActive) throw new ImportError('VAN_INACTIVE', `Van "${existing.plateNumber}" is inactive. Reactivate it or choose another.`);
+      if (!existing && (name.length > MAX_VAN_LABEL || !VAN_LABEL_RE.test(name))) {
+        throw new ImportError('VAN_LABEL_INVALID', `"${name}" is not a valid van name (letters, numbers, space and . _ - / # only, max ${MAX_VAN_LABEL}).`);
+      }
+      if (!vanMap.has(key) && vanMap.size >= MAX_VAN_MAPPINGS) throw new ImportError('VAN_MAPPING_INVALID', 'Too many van changes on this import.');
+      vanMap.set(key, existing?.plateNumber ?? name);
+    }
+    return { ...options, vanMap: Object.fromEntries(vanMap) };
   },
 
   revertRows: revertCustomerRows,
@@ -1000,19 +1055,48 @@ function scheduleLabels(rows: { normalized: NormalizedCustomer | null }[]): stri
   return [...seen.values()];
 }
 
-/** Vans (of ANY company — plate numbers are globally unique) matching these plate numbers, keyed by lower-case plate. */
-async function loadVansByPlate(prisma: PrismaService, plates: string[]): Promise<Map<string, VanRef>> {
-  const out = new Map<string, VanRef>();
-  const distinct = [...new Set(plates.map((p) => p.toLowerCase()))];
-  for (let i = 0; i < distinct.length; i += 100) {
-    const chunk = distinct.slice(i, i + 100);
-    const vans = await prisma.van.findMany({
-      where: { OR: chunk.map((p) => ({ plateNumber: { equals: p, mode: 'insensitive' as const } })) },
-      select: { id: true, plateNumber: true, vendorId: true, isActive: true },
-    });
-    for (const v of vans) out.set(v.plateNumber.toLowerCase(), v);
+/** This company's vans keyed by lower-case plate (other companies may reuse the same names). */
+async function loadVansByPlate(prisma: PrismaService, vendorId: string): Promise<Map<string, VanRef>> {
+  const vans = await prisma.van.findMany({
+    where: { vendorId },
+    select: { id: true, plateNumber: true, isActive: true, isSystem: true },
+  });
+  return new Map(vans.map((v) => [v.plateNumber.toLowerCase(), v]));
+}
+
+/** What will happen to one file van. A van the vendor chose by name may always be created. */
+function vanStatus(label: string, ctx: PlanContext, options: CustomersOpeningOptions): 'EXISTING' | 'NEW' | 'INACTIVE' | 'NOT_FOUND' {
+  const van = ctx.vansByPlate.get(plateOf(label, options).toLowerCase());
+  if (van) return van.isActive ? 'EXISTING' : 'INACTIVE';
+  return options.createMissingVans || mappedVan(label, options) ? 'NEW' : 'NOT_FOUND';
+}
+
+/** Every van the file names (rows already in the CRM excluded), for the review screen's van list. */
+function fileVans(planned: PlannedRow<NormalizedCustomer>[], options: CustomersOpeningOptions, ctx: PlanContext): FileVan[] {
+  const out = new Map<string, FileVan>();
+  for (const p of planned) {
+    if (p.action === 'SKIP_EXISTING') continue;
+    const labels = new Map<string, { label: string; invalid: boolean }>();
+    for (const e of p.normalized?.schedule ?? []) labels.set(e.vanLabel.toLowerCase(), { label: e.vanLabel, invalid: false });
+    for (const i of p.issues) {
+      const label = i.code === 'VAN_LABEL_INVALID' ? i.data?.['van'] : null;
+      if (label) labels.set(String(label).toLowerCase(), { label: String(label), invalid: true });
+    }
+    for (const [key, v] of labels) {
+      const hit = out.get(key);
+      if (hit) hit.rows++;
+      else {
+        out.set(key, {
+          label: v.label,
+          van: plateOf(v.label, options),
+          status: v.invalid ? 'INVALID' : vanStatus(v.label, ctx, options),
+          changed: mappedVan(v.label, options) !== null,
+          rows: 1,
+        });
+      }
+    }
   }
-  return out;
+  return [...out.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
 
 /**
@@ -1031,18 +1115,18 @@ async function resolveVansAndRoutes(
 
   const plates = new Map<string, string>(); // lower -> display
   for (const label of scheduleLabels(customers.map((normalized) => ({ normalized })))) {
-    const plate = plateOf(label, options.vanPrefix);
+    const plate = plateOf(label, options);
     if (!plates.has(plate.toLowerCase())) plates.set(plate.toLowerCase(), plate);
   }
   if (plates.size > 0) {
-    const existing = await loadVansByPlate(prisma, [...plates.values()]);
+    const existing = await loadVansByPlate(prisma, vendorId);
+    const chosen = new Set(Object.values(options.vanMap ?? {}).map((v) => v.toLowerCase()));
     for (const [lower, plate] of plates) {
       const van = existing.get(lower);
       if (van) {
-        if (van.vendorId !== vendorId) throw new ImportError('VAN_LABEL_TAKEN', `Van "${plate}" is already used by another company's account. Set a van prefix in the import options.`);
         if (!van.isActive) throw new ImportError('VAN_INACTIVE', `Van "${van.plateNumber}" is inactive.`);
         vanIds.set(lower, van.id);
-      } else if (options.createMissingVans) {
+      } else if (options.createMissingVans || chosen.has(lower)) {
         const created = await prisma.van.create({ data: { plateNumber: plate, vendorId } });
         vanIds.set(lower, created.id);
       } else {
@@ -1058,7 +1142,7 @@ async function resolveVansAndRoutes(
     const k = routeKey(c.route);
     if (!wanted.has(k)) wanted.set(k, c.route);
     const first = [...(c.schedule ?? [])].sort((a, b) => a.dayOfWeek - b.dayOfWeek)[0];
-    const vanId = first ? vanIds.get(plateOf(first.vanLabel, options.vanPrefix).toLowerCase()) : undefined;
+    const vanId = first ? vanIds.get(plateOf(first.vanLabel, options).toLowerCase()) : undefined;
     if (vanId) {
       const votes = vanVotes.get(k) ?? new Map<string, number>();
       votes.set(vanId, (votes.get(vanId) ?? 0) + 1);
