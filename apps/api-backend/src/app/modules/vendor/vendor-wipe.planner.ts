@@ -54,6 +54,18 @@ export interface PlanOptions {
   keepModels?: ReadonlySet<string>;
   /** Replaces the default partial scopes (default: every user except VENDOR_ADMIN). */
   partialScope?: Record<string, (alias: string) => string>;
+  /**
+   * Restricts ownership seeding to exactly these models instead of every vendorId-bearing model
+   * (the default "full vendor wipe" behaviour). Each named model must still have its own vendorId
+   * column — that is what makes it a valid seed. Ownership still expands outward from here through
+   * required relations (and `forceOwnVia`), so a scoped subtree (e.g. "everything under DailySheet")
+   * is discovered and ordered the same schema-driven way as a full wipe.
+   */
+  rootModels?: ReadonlySet<string>;
+  /**
+   * Optional relation field names that can make a row part of the wipe.
+   */
+  forceOwnVia?: Record<string, readonly string[]>;
 }
 
 export interface WipePlan {
@@ -76,9 +88,18 @@ const MAX_SCOPE_DEPTH = 8;
 export function planVendorWipe(models: readonly DmmfModelLike[], options: PlanOptions = {}): WipePlan {
   const KEEP = options.keepModels ?? KEEP_MODELS;
   const PARTIAL = options.partialScope ?? PARTIAL_SCOPE;
+  const ROOTS = options.rootModels;
+  const FORCE = options.forceOwnVia ?? {};
   const byName = new Map(models.map((m) => [m.name, m]));
   const owningFks = (m: DmmfModelLike) => m.fields.filter((f) => f.kind === 'object' && (f.relationFromFields?.length ?? 0) > 0);
   const hasDirectVendorId = (m: DmmfModelLike) => m.fields.some((f) => f.name === 'vendorId' && f.kind === 'scalar');
+  // Default (no rootModels given): every vendorId-bearing model is its own seed (full wipe).
+  // With rootModels given: only those named models seed ownership; everything else must be reached
+  // through a required relation (or a forced one) from an already-owned model.
+  const isSeed = (m: DmmfModelLike) => (ROOTS ? ROOTS.has(m.name) : hasDirectVendorId(m));
+  // An edge counts toward ownership/scoping if it's a normal required FK, or the caller explicitly
+  // marked that optional relation as part of the wipe.
+  const ownsVia = (m: DmmfModelLike, f: DmmfFieldLike) => f.isRequired || FORCE[m.name]?.includes(f.name);
 
   for (const m of models) {
     for (const f of owningFks(m)) {
@@ -90,12 +111,12 @@ export function planVendorWipe(models: readonly DmmfModelLike[], options: PlanOp
 
   // ── ownership (fixpoint) ──
   const owned = new Set<string>();
-  for (const m of models) if (!KEEP.has(m.name) && m.name !== 'Vendor' && hasDirectVendorId(m)) owned.add(m.name);
+  for (const m of models) if (!KEEP.has(m.name) && m.name !== 'Vendor' && isSeed(m)) owned.add(m.name);
   for (let changed = true; changed; ) {
     changed = false;
     for (const m of models) {
       if (owned.has(m.name) || KEEP.has(m.name) || m.name === 'Vendor') continue;
-      if (owningFks(m).some((f) => f.isRequired && owned.has(f.type))) {
+      if (owningFks(m).some((f) => ownsVia(m, f) && owned.has(f.type))) {
         owned.add(m.name);
         changed = true;
       }
@@ -106,12 +127,12 @@ export function planVendorWipe(models: readonly DmmfModelLike[], options: PlanOp
   const scope = (name: string, alias: string, depth = 0): string => {
     if (depth > MAX_SCOPE_DEPTH) throw new Error(`Vendor wipe: ownership chain of ${name} is too deep / cyclic`);
     const m = byName.get(name) as DmmfModelLike;
-    if (hasDirectVendorId(m)) {
+    if (isSeed(m)) {
       const extra = PARTIAL[name];
       return `${alias}."vendorId" = $1${extra ? ` AND ${extra(alias)}` : ''}`;
     }
     const parts = owningFks(m)
-      .filter((f) => f.isRequired && owned.has(f.type))
+      .filter((f) => ownsVia(m, f) && owned.has(f.type))
       .map((f) => {
         const pAlias = `s${depth + 1}`;
         const from = (f.relationFromFields as readonly string[])[0];
